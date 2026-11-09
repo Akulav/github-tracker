@@ -1,0 +1,11 @@
+pub mod app;
+mod charts;
+mod derive;
+mod detail;
+mod login;
+mod maintenance;
+mod overview;
+mod repos;
+mod settings_page;
+mod theme;
+mod widgets;

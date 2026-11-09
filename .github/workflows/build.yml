@@ -1,0 +1,206 @@
+# Builds and tests Windows, Linux and macOS on every push and PR.
+#
+# Every release ships exactly one file per OS, and that file both installs and updates:
+#   AkulavTracker-setup.exe     Windows x64 (Inno Setup; asks for the folder once, updates reuse it)
+#   AkulavTracker-linux-x64     Linux x64 (installs itself into a folder you pick)
+#   AkulavTracker-macos-arm64   macOS Apple Silicon (installs itself as an .app into a folder you pick)
+# plus SHA256SUMS.txt, which installed copies verify their updates against.
+#
+# Releasing is automatic: bump `version` in Cargo.toml and push to main. When no release with that
+# version exists yet, the `release` job tags the commit (e.g. `1.0.0`) and publishes the release.
+# Pushing a tag by hand works too.
+#
+# "Sign in with GitHub" needs the client ID of a GitHub OAuth App with Device Flow enabled. Put it
+# in the repository variable OAUTH_CLIENT_ID (Settings → Secrets and variables → Actions →
+# Variables). Without it, builds still work and offer token / GitHub CLI sign-in.
+
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  AKULAV_GITHUB_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
+
+jobs:
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          release=false
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [[ "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+              exit 1
+            fi
+            release=true
+          elif [[ "$GITHUB_EVENT_NAME" != "pull_request" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $version already exists, nothing to publish."
+            else
+              release=true
+            fi
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "### Akulav Tracker $version (release: $release)" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -z "$AKULAV_GITHUB_CLIENT_ID" ]]; then
+            echo "::warning::OAUTH_CLIENT_ID is not set; builds offer token sign-in only (no 'Sign in with GitHub')."
+          fi
+
+  windows:
+    name: Windows x64
+    needs: meta
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: cargo build --release
+      - name: Setup (install + update in one file)
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DAppVersion=${{ needs.meta.outputs.version }}" "/DSourceExe=$PWD\target\release\AkulavTracker.exe" installer\akulav-tracker.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item dist\AkulavTracker-setup.exe .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AkulavTracker-setup.exe
+          path: AkulavTracker-setup.exe
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Zig (for an old-glibc build that runs on most distros)
+        run: |
+          pip install ziglang
+          cargo install cargo-zigbuild --locked
+      - name: Test
+        run: cargo test --release
+      - name: Build (glibc 2.28+)
+        run: |
+          cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.28
+          cp target/x86_64-unknown-linux-gnu/release/AkulavTracker AkulavTracker-linux-x64
+          chmod +x AkulavTracker-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AkulavTracker-linux-x64
+          path: AkulavTracker-linux-x64
+          if-no-files-found: error
+
+  macos:
+    name: macOS Apple Silicon
+    needs: meta
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cp target/aarch64-apple-darwin/release/AkulavTracker AkulavTracker-macos-arm64
+          chmod +x AkulavTracker-macos-arm64
+          codesign --force -s - AkulavTracker-macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AkulavTracker-macos-arm64
+          path: AkulavTracker-macos-arm64
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [meta, windows, linux, macos]
+    if: needs.meta.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and notes
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          BASE: https://github.com/${{ github.repository }}/releases/download/${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          chmod +x AkulavTracker-linux-x64 AkulavTracker-macos-arm64
+          sha256sum AkulavTracker-setup.exe AkulavTracker-linux-x64 AkulavTracker-macos-arm64 > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          {
+            echo "## Akulav Tracker $VERSION"
+            echo
+            echo "_Made by **Akulav**: all your GitHub repositories at a glance. No telemetry; it only talks to GitHub._"
+            echo
+            echo "One file per system. The same file installs the app and later updates it."
+            echo
+            echo "| System | Download | First start |"
+            echo "| --- | --- | --- |"
+            echo "| Windows 10/11 (x64) | [AkulavTracker-setup.exe]($BASE/AkulavTracker-setup.exe) | Asks where to install (no admin rights). Updates reuse that folder. |"
+            echo "| Linux x64 (glibc 2.28+) | [AkulavTracker-linux-x64]($BASE/AkulavTracker-linux-x64) | \`chmod +x\` it and run it. It asks where to install. |"
+            echo "| macOS Apple Silicon | [AkulavTracker-macos-arm64]($BASE/AkulavTracker-macos-arm64) | \`chmod +x\`, then right-click → Open. It asks where to install. |"
+            echo
+            echo "Installed copies update themselves in one click, verified with SHA-256."
+            echo
+            echo "<details><summary>SHA-256 checksums</summary>"
+            echo
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+            echo "</details>"
+            echo
+          } > notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.meta.outputs.version }}
+          name: Akulav Tracker ${{ needs.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body_path: dist/notes.md
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/AkulavTracker-setup.exe
+            dist/AkulavTracker-linux-x64
+            dist/AkulavTracker-macos-arm64
+            dist/SHA256SUMS.txt
