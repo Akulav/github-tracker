@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
 
-use super::github::{Details, Repo};
+use super::github::{Details, History, Repo};
 
 /// How recently a repository saw a commit — the core of the maintenance view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -182,6 +182,25 @@ pub fn totals<'a>(repos: impl IntoIterator<Item = &'a Repo>, details: &HashMap<u
     t
 }
 
+/// Total lines after each commit of `history` (same order, newest first), and whether the totals
+/// are absolute. A complete history counts up from zero. A truncated one counts back from
+/// `current` (GitHub's net line count) when known, else from zero at the oldest commit read.
+pub fn line_totals(history: &History, current: Option<u64>) -> (Vec<i64>, bool) {
+    let sum: i64 = history.commits.iter().map(|c| c.net()).sum();
+    let (end, absolute) = match (history.complete, current) {
+        (true, _) => (sum, true),
+        (false, Some(n)) => (n as i64, true),
+        (false, None) => (sum, false),
+    };
+    let mut totals = Vec::with_capacity(history.commits.len());
+    let mut t = end;
+    for c in &history.commits {
+        totals.push(t);
+        t -= c.net();
+    }
+    (totals, absolute)
+}
+
 /// "just now", "5 minutes ago", "3 days ago", "2 months ago", "4 years ago".
 pub fn ago(t: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let s = (now - t).num_seconds().max(0);
@@ -324,6 +343,18 @@ mod tests {
         assert!(fresh < 5 && old > 75, "{fresh} {old}");
         r.archived = true;
         assert_eq!(attention(&r, None, now), 0);
+    }
+
+    #[test]
+    fn line_totals_per_commit() {
+        use crate::backend::github::CommitStat;
+        let c = |add: u64, del: u64, merge: bool| CommitStat { sha: String::new(), title: String::new(), author: String::new(), date: None, additions: add, deletions: del, merge, url: String::new() };
+        // Newest first: +10/-4, merge (ignored), +100.
+        let mut h = History { commits: vec![c(10, 4, false), c(999, 0, true), c(100, 0, false)], complete: true, seen_push: None };
+        assert_eq!(line_totals(&h, Some(5000)), (vec![106, 100, 100], true));
+        h.complete = false;
+        assert_eq!(line_totals(&h, Some(5000)), (vec![5000, 4994, 4994], true));
+        assert_eq!(line_totals(&h, None), (vec![106, 100, 100], false));
     }
 
     #[test]

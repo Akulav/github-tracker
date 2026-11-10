@@ -152,14 +152,21 @@ pub mod store {
             let _ = std::fs::remove_file(file(root));
             return Ok(());
         }
+        use std::io::Write;
         std::fs::create_dir_all(root)?;
         let path = file(root);
-        std::fs::write(&path, token)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+            // Private from the moment it exists, not only after a chmod.
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            opts.mode(0o600);
+            if path.exists() {
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+            }
         }
+        opts.open(&path)?.write_all(token.as_bytes())?;
         Ok(())
     }
 

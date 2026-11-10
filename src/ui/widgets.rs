@@ -4,8 +4,63 @@ use egui::{pos2, vec2, Align2, Color32, CornerRadius, Frame, Margin, Rect, Respo
 
 use super::theme::*;
 
+/// The one gutter used between cards and tiles, horizontally and vertically.
+pub const GAP: f32 = 12.0;
+const CARD_PAD: i8 = 18;
+
 pub fn card() -> Frame {
-    Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(18))
+    Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(CARD_PAD))
+}
+
+/// Vertical space so consecutive blocks sit exactly [`GAP`] apart.
+pub fn vgap(ui: &mut Ui) {
+    ui.add_space(GAP - ui.spacing().item_spacing.y);
+}
+
+/// Open a web page in the browser. Only http(s) URLs: links come from the API and the cache on
+/// disk, and must never launch a local file or program.
+pub fn open_url(url: &str) {
+    let u = url.trim();
+    if (u.starts_with("https://") || u.starts_with("http://")) && !u.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        let _ = open::that_detached(u);
+    }
+}
+
+/// Width of a cell spanning `span` of `cols` equal columns in `total` width.
+pub fn span_width(total: f32, cols: usize, span: usize) -> f32 {
+    let unit = (total - GAP * (cols as f32 - 1.0)) / cols as f32;
+    unit * span as f32 + GAP * (span as f32 - 1.0)
+}
+
+/// A row of cards on a `cols`-column grid; card `i` spans `spans[i]` columns. All cards in the
+/// row get the height of the tallest one (measured on the previous frame).
+pub fn card_row(ui: &mut Ui, id: &str, cols: usize, spans: &[usize], mut add: impl FnMut(&mut Ui, usize)) {
+    let id = ui.id().with(("card_row", id));
+    let target: f32 = ui.data(|d| d.get_temp(id)).unwrap_or(0.0);
+    let total = ui.available_width();
+    let mut tallest = 0.0f32;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = GAP;
+        for (i, span) in spans.iter().enumerate() {
+            let w = span_width(total, cols, *span);
+            ui.allocate_ui_with_layout(vec2(w, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                card().show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    // `set_min_height` counts from the cursor, so it must come before the content.
+                    // The cursor then still tells where the content really ends.
+                    let top = ui.cursor().top();
+                    ui.set_min_height(target);
+                    add(ui, i);
+                    let natural = ui.cursor().top() - ui.spacing().item_spacing.y - top;
+                    tallest = tallest.max(natural);
+                });
+            });
+        }
+    });
+    if (tallest - target).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(id, tallest));
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Small uppercase label above a heading.
@@ -18,6 +73,20 @@ pub fn section_title(ui: &mut Ui, icon: &str, title: &str) {
         ui.label(RichText::new(icon).font(regular(17.0)).color(ACCENT_HI));
         ui.label(RichText::new(title).font(bold(16.0)).color(TEXT));
     });
+}
+
+/// Card heading: icon and title, a faint line below it, and optional controls on the right.
+/// Every card uses it, so headings line up across a row.
+pub fn card_header(ui: &mut Ui, icon: &str, title: &str, sub: &str, right: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            section_title(ui, icon, title);
+            ui.add_space(-6.0);
+            ui.label(RichText::new(if sub.is_empty() { " " } else { sub }).font(regular(12.0)).color(FAINT));
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), right);
+    });
+    ui.add_space(4.0);
 }
 
 pub fn page_header(ui: &mut Ui, kick: &str, title: &str, sub: Option<&str>) {
@@ -62,6 +131,14 @@ pub fn secondary_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool
 
 pub fn danger_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
     button_base(ui, text, size, enabled, with_alpha(RED, 30), with_alpha(RED, 60), RED, Some(with_alpha(RED, 90)))
+}
+
+/// A full-width card (the single-column counterpart of [`card_row`]).
+pub fn full_card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        add(ui)
+    });
 }
 
 /// Text-only button sized to its label.

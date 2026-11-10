@@ -12,8 +12,10 @@ A fast native desktop app (Rust + egui) that signs in to GitHub and shows:
   sparkline and a color-coded "last commit" pill.
 - **Maintenance radar** — every repository plotted by time since its last commit (today → years),
   grouped into Active · Recent · Cooling · Stale · Dormant, plus a ranked "needs attention" list.
-- **Repository detail** — contribution heatmap, weekly commits, code frequency (lines added and
-  removed per week), languages, recent commits, and shortcuts to GitHub.
+- **Repository detail** — code evolution (total lines after every commit, with each commit's lines
+  added and removed, for up to the newest 1,000 commits), contribution heatmap, weekly commits, code
+  frequency (lines added and removed per week), languages, the commit list with per-commit `+`/`−`
+  and running totals, and shortcuts to GitHub.
 
 The last sync is cached on disk, so the app opens instantly and only refetches repositories that
 changed (or whose statistics are more than a day old).
@@ -91,7 +93,7 @@ cargo run -- --demo
 `cargo test` runs the unit tests. Build the Windows installer locally with:
 
 ```bash
-iscc /DAppVersion=1.0.0 /DSourceExe=%CD%\target\release\AkulavTracker.exe installer\akulav-tracker.iss
+iscc /DAppVersion=1.1.0 /DSourceExe=%CD%\target\release\AkulavTracker.exe installer\akulav-tracker.iss
 ```
 
 Licensed under the Akulav Source-Available License (see `LICENSE`).

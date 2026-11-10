@@ -33,14 +33,12 @@ impl App {
 
         page(ui, "settings", |ui| {
             page_header(ui, "Settings", "Settings", None);
-            ui.add_space(14.0);
+            ui.add_space(GAP);
             let w = ui.available_width().min(760.0);
             ui.allocate_ui_with_layout(vec2(w, 0.0), Layout::top_down(Align::Min), |ui| {
                 // Account.
-                card().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    section_title(ui, ph::USER_CIRCLE, "Account");
-                    ui.add_space(8.0);
+                full_card(ui, |ui| {
+                    card_header(ui, ph::USER_CIRCLE, "Account", "the GitHub account this app reads", |_| {});
                     ui.horizontal(|ui| {
                         avatar(ui, tex.as_ref(), 52.0, &login);
                         ui.add_space(6.0);
@@ -48,7 +46,7 @@ impl App {
                             ui.label(RichText::new(&name).font(bold(17.0)));
                             ui.add_space(-6.0);
                             if ui.link(RichText::new(format!("@{login}")).font(regular(13.0))).clicked() && !html_url.is_empty() {
-                                let _ = open::that_detached(&html_url);
+                                open_url(&html_url);
                             }
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -63,13 +61,11 @@ impl App {
                         ui.label(RichText::new(format!("GitHub API: {} of {} requests left this hour (resets at {reset})", rate.0, rate.1)).font(regular(12.0)).color(FAINT));
                     }
                 });
-                ui.add_space(12.0);
+                vgap(ui);
 
                 // Data.
-                card().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    section_title(ui, ph::DATABASE, "Repositories & sync");
-                    ui.add_space(8.0);
+                full_card(ui, |ui| {
+                    card_header(ui, ph::DATABASE, "Repositories & sync", "what is counted, and when it is read", |_| {});
                     changed |= setting_row(ui, "Sync when the app starts", "Fetch changes from GitHub every time you open the app.", &mut self.settings.sync_on_start);
                     ui.separator();
                     changed |= setting_row(ui, "Count forks", "Include forked repositories in the overview and maintenance radar.", &mut self.settings.include_forks);
@@ -99,13 +95,11 @@ impl App {
                         });
                     }
                 });
-                ui.add_space(12.0);
+                vgap(ui);
 
                 // Updates.
-                card().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    section_title(ui, ph::ARROW_CIRCLE_UP, "Updates");
-                    ui.add_space(8.0);
+                full_card(ui, |ui| {
+                    card_header(ui, ph::ARROW_CIRCLE_UP, "Updates", "new versions from this app's GitHub releases, checked by SHA-256", |_| {});
                     changed |= setting_row(ui, "Check for updates automatically", "Looks for a new release on GitHub at start and every few hours.", &mut self.settings.auto_check_updates);
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
@@ -138,13 +132,11 @@ impl App {
                         });
                     });
                 });
-                ui.add_space(12.0);
+                vgap(ui);
 
                 // Install.
-                card().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    section_title(ui, ph::FOLDER_OPEN, "Install");
-                    ui.add_space(8.0);
+                full_card(ui, |ui| {
+                    card_header(ui, ph::FOLDER_OPEN, "Install", "where the app and its data live", |_| {});
                     let installed = install::running_installed();
                     let where_ = if installed { "Installed in" } else if install::portable() { "Portable copy, data in" } else { "Not installed; data in" };
                     ui.horizontal(|ui| {
@@ -165,11 +157,10 @@ impl App {
                         });
                     }
                 });
-                ui.add_space(12.0);
+                vgap(ui);
 
                 // About.
-                card().show(ui, |ui| {
-                    ui.set_width(ui.available_width());
+                full_card(ui, |ui| {
                     ui.horizontal(|ui| {
                         if let Some(icon) = &self.icon {
                             ui.add(egui::Image::new(icon).fit_to_exact_size(vec2(54.0, 54.0)));
@@ -183,7 +174,7 @@ impl App {
                         });
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if secondary_button(ui, &format!("{}  GitHub", ph::GITHUB_LOGO), vec2(110.0, 34.0), true).clicked() {
-                                let _ = open::that_detached(update::REPO_URL);
+                                open_url(update::REPO_URL);
                             }
                         });
                     });

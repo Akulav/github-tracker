@@ -5,6 +5,7 @@ use chrono::{DateTime, Datelike, Utc};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, Id, LayerId, Mesh, Order, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui};
 
 use super::theme::*;
+use crate::backend::github::CommitStat;
 use crate::backend::stats;
 
 /// Tooltip box next to the pointer. Lines are (text, color, bold).
@@ -155,7 +156,9 @@ pub fn heatmap(ui: &mut Ui, first_week: i64, daily: &[u32], now: DateTime<Utc>) 
     let step = cell + gap;
     let grid_h = step * 7.0;
     let size = vec2(left + step * stats::WEEKS as f32, 18.0 + grid_h + 26.0);
-    let (rect, resp) = ui.allocate_exact_size(vec2(avail, size.y), Sense::hover());
+    let (full, resp) = ui.allocate_exact_size(vec2(avail, size.y), Sense::hover());
+    // Cells stop growing at 16 px; center the calendar in whatever width is left.
+    let rect = Rect::from_min_size(full.min + vec2(((avail - size.x) / 2.0).max(0.0), 0.0), size);
     let p = ui.painter();
     let origin = rect.min + vec2(left, 18.0);
     // Clip high outliers so one huge day doesn't wash out the rest.
@@ -428,6 +431,116 @@ pub fn code_frequency(ui: &mut Ui, weeks: &[(i64, i64, i64)], height: f32) -> Re
         );
     }
     resp
+}
+
+/// Signed compact number: -1.2k, 950, 3.4M.
+fn compact_signed(v: i64) -> String {
+    if v < 0 {
+        format!("−{}", stats::compact(v.unsigned_abs()))
+    } else {
+        stats::compact(v as u64)
+    }
+}
+
+/// Codebase evolution: total lines after every commit (area line, top) and each commit's lines
+/// added and removed (bars, bottom), sharing one x axis, oldest on the left. `commits` and
+/// `totals` are newest first, as the history comes. Returns the clicked commit's index in them.
+pub fn code_evolution(ui: &mut Ui, commits: &[CommitStat], totals: &[i64], height: f32) -> Option<usize> {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    let p = ui.painter();
+    let n = commits.len().min(totals.len());
+    if n == 0 {
+        return None;
+    }
+    let left = 46.0;
+    let inner = Rect::from_min_max(rect.min + vec2(left, 6.0), rect.max - vec2(4.0, 22.0));
+    let line_h = inner.height() * 0.64;
+    let line = Rect::from_min_size(inner.min, vec2(inner.width(), line_h));
+    let bars = Rect::from_min_max(pos2(inner.left(), line.bottom() + 14.0), inner.max);
+    let slot = inner.width() / n as f32;
+    let x_at = |i: usize| inner.left() + slot * (i as f32 + 0.5);
+    // Position i (left to right) is the (n-1-i)-th newest commit.
+    let commit = |i: usize| &commits[n - 1 - i];
+    let total = |i: usize| totals[n - 1 - i];
+
+    // Totals: from zero (or the lowest point) to a rounded maximum.
+    let lo = totals[..n].iter().copied().min().unwrap_or(0).min(0);
+    let hi = totals[..n].iter().copied().max().unwrap_or(1).max(lo + 1);
+    let span = (hi - lo) as f32;
+    let y_at = |v: i64| line.bottom() - line.height() * ((v - lo) as f32 / span);
+    for k in 0..=3 {
+        let v = lo + ((hi - lo) as f64 * k as f64 / 3.0).round() as i64;
+        let y = y_at(v);
+        p.hline(line.x_range(), y, Stroke::new(1.0_f32, with_alpha(BORDER, if k == 0 { 255 } else { 120 })));
+        p.text(pos2(line.left() - 8.0, y), Align2::RIGHT_CENTER, compact_signed(v), regular(10.5), FAINT);
+    }
+    let pts: Vec<Pos2> = (0..n).map(|i| pos2(x_at(i), y_at(total(i)))).collect();
+    if n == 1 {
+        p.circle_filled(pts[0], 4.0, PURPLE);
+    } else {
+        p.add(fill_under(&pts, line.bottom(), with_alpha(PURPLE, 80), with_alpha(PURPLE, 4)));
+        p.add(Shape::line(pts.clone(), Stroke::new(2.0_f32, PURPLE)));
+    }
+
+    // Per-commit changes, square-root scale so one big import doesn't flatten the rest.
+    let mid = bars.center().y;
+    p.hline(bars.x_range(), mid, Stroke::new(1.0_f32, BORDER));
+    p.text(pos2(bars.left() - 8.0, bars.top() + 2.0), Align2::RIGHT_CENTER, "added", regular(10.0), FAINT);
+    p.text(pos2(bars.left() - 8.0, bars.bottom() - 2.0), Align2::RIGHT_CENTER, "removed", regular(10.0), FAINT);
+    let max = commits[..n].iter().filter(|c| !c.merge).map(|c| c.additions.max(c.deletions)).max().unwrap_or(1).max(1) as f32;
+    let scale = |v: u64| (v as f32 / max).sqrt() * (bars.height() / 2.0 - 1.0);
+    let bw = (slot * 0.7).clamp(1.0, 14.0);
+    let hover_i = resp.hover_pos().filter(|h| inner.expand2(vec2(0.0, 6.0)).contains(*h)).map(|h| (((h.x - inner.left()) / slot).max(0.0) as usize).min(n - 1));
+    for i in 0..n {
+        let c = commit(i);
+        let x = x_at(i) - bw / 2.0;
+        let hl = hover_i == Some(i);
+        let (up, down) = if c.merge { (with_alpha(FAINT, 120), with_alpha(FAINT, 120)) } else if hl { (Color32::from_rgb(120, 240, 190), Color32::from_rgb(255, 160, 160)) } else { (ACCENT, RED) };
+        if c.additions > 0 {
+            p.rect_filled(Rect::from_min_max(pos2(x, mid - scale(c.additions).max(1.5)), pos2(x + bw, mid - 0.5)), CornerRadius::same(1), up);
+        }
+        if c.deletions > 0 {
+            p.rect_filled(Rect::from_min_max(pos2(x, mid + 0.5), pos2(x + bw, mid + scale(c.deletions).max(1.5))), CornerRadius::same(1), down);
+        }
+    }
+
+    // Dates along the bottom, evenly spaced.
+    let first = commit(0).date;
+    let last = commit(n - 1).date;
+    let long = matches!((first, last), (Some(a), Some(b)) if (b - a).num_days() > 300);
+    let ticks = if n < 5 { n } else { 5 };
+    for k in 0..ticks {
+        let i = if ticks == 1 { 0 } else { k * (n - 1) / (ticks - 1) };
+        if let Some(d) = commit(i).date {
+            let align = if k == 0 { Align2::LEFT_TOP } else if k + 1 == ticks { Align2::RIGHT_TOP } else { Align2::CENTER_TOP };
+            let x = if k == 0 { inner.left() } else if k + 1 == ticks { inner.right() } else { x_at(i) };
+            let text = if long { d.format("%b %Y").to_string() } else { d.format("%b %-d").to_string() };
+            p.text(pos2(x, inner.bottom() + 6.0), align, text, regular(10.5), FAINT);
+        }
+    }
+
+    let i = hover_i?;
+    let c = commit(i);
+    p.vline(x_at(i), inner.y_range(), Stroke::new(1.0_f32, with_alpha(TEXT, 50)));
+    p.circle_filled(pts[i], 5.0, BG);
+    p.circle_stroke(pts[i], 5.0, Stroke::new(2.0_f32, PURPLE));
+    let when = c.date.map(|d| d.with_timezone(&chrono::Local).format("%b %-d, %Y %H:%M").to_string()).unwrap_or_default();
+    let mut lines = vec![
+        (truncate(if c.title.is_empty() { "(no message)" } else { &c.title }, 60), TEXT, true),
+        (format!("{}  ·  {}  ·  {when}", c.sha.chars().take(7).collect::<String>(), c.author), MUTED, false),
+    ];
+    if c.merge {
+        lines.push(("Merge commit: its changes count on the merged branch".into(), FAINT, false));
+    } else {
+        lines.push((format!("+{} added   −{} removed", stats::grouped(c.additions), stats::grouped(c.deletions)), ACCENT_HI, false));
+    }
+    lines.push((format!("{} lines after this commit", if total(i) < 0 { compact_signed(total(i)) } else { stats::grouped(total(i) as u64) }), PURPLE, true));
+    if !c.url.is_empty() {
+        lines.push(("Click to open on GitHub".into(), FAINT, false));
+    }
+    tip(ui.ctx(), resp.hover_pos().unwrap(), &lines);
+    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    resp.clicked().then_some(n - 1 - i)
 }
 
 pub struct TimelineItem {

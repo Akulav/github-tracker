@@ -16,7 +16,7 @@ use super::widgets::*;
 use crate::backend::auth::{self, DeviceCode};
 use crate::backend::cache::Cache;
 use crate::backend::demo;
-use crate::backend::github::{Api, Commit, Details, Repo, User};
+use crate::backend::github::{Api, Details, History, Repo, User};
 use crate::backend::install::{self, Offer, StartupInfo};
 use crate::backend::jobs::{self, Bus, Event};
 use crate::backend::settings::Settings;
@@ -183,7 +183,8 @@ pub struct App {
     pub details: HashMap<u64, Details>,
     pub synced_at: Option<DateTime<Utc>>,
     pub sync: SyncState,
-    pub commits: HashMap<u64, Loadable<Vec<Commit>>>,
+    /// Per-commit history of repositories opened this session.
+    pub commit_history: HashMap<u64, Loadable<History>>,
     avatars: HashMap<String, AvatarSlot>,
 
     pub page: Page,
@@ -237,7 +238,7 @@ impl App {
             details: HashMap::new(),
             synced_at: None,
             sync: SyncState::default(),
-            commits: HashMap::new(),
+            commit_history: HashMap::new(),
             avatars: HashMap::new(),
             page: Page::Overview,
             page_since: Instant::now(),
@@ -355,7 +356,7 @@ impl App {
         }
         self.repos.clear();
         self.details.clear();
-        self.commits.clear();
+        self.commit_history.clear();
         self.synced_at = None;
         self.auth = Auth::SignedOut(Login::default());
         self.page = Page::Overview;
@@ -450,20 +451,26 @@ impl App {
 
     pub fn open_repo(&mut self, id: u64) {
         self.go(Page::Repo(id));
-        if !matches!(self.commits.get(&id), Some(Loadable::Ready(_)) | Some(Loadable::Loading)) {
-            self.load_commits(id);
+        let pushed = self.repo(id).and_then(|r| r.pushed_at);
+        let fresh = match self.commit_history.get(&id) {
+            Some(Loadable::Loading) => true,
+            Some(Loadable::Ready(h)) => h.seen_push == pushed,
+            _ => false,
+        };
+        if !fresh {
+            self.load_history(id);
         }
     }
 
-    pub fn load_commits(&mut self, id: u64) {
+    pub fn load_history(&mut self, id: u64) {
         let (Some(s), Some(r)) = (self.session(), self.repo(id)) else { return };
-        let (api, r) = (s.api.clone(), r.clone());
+        let (api, session, r) = (s.api.clone(), s.id, r.clone());
         if demo::enabled() {
-            self.commits.insert(id, Loadable::Ready(demo::commits(&r)));
+            self.commit_history.insert(id, Loadable::Ready(demo::history(&r)));
             return;
         }
-        self.commits.insert(id, Loadable::Loading);
-        jobs::recent_commits(self.rt.handle(), self.bus.clone(), api, r);
+        self.commit_history.insert(id, Loadable::Loading);
+        jobs::history(self.rt.handle(), self.bus.clone(), api, session, r);
     }
 
     pub fn go(&mut self, page: Page) {
@@ -555,6 +562,10 @@ impl App {
                 }
                 Event::SyncFailed { session, error } if Some(session) == current => {
                     self.sync.running = false;
+                    // Keep what was read before the failure (the sync time stays as it was).
+                    if !error.contains("401") {
+                        self.save_cache();
+                    }
                     if error.contains("401") {
                         self.sign_out();
                         if let Some(l) = self.login_mut() {
@@ -565,8 +576,8 @@ impl App {
                         self.sync.error = Some(error);
                     }
                 }
-                Event::Commits { id, result } => {
-                    self.commits.insert(
+                Event::History { session, id, result } if Some(session) == current => {
+                    self.commit_history.insert(
                         id,
                         match result {
                             Ok(c) => Loadable::Ready(c),
@@ -807,7 +818,7 @@ impl App {
         p.text(pos2(av.right() + 10.0, av.top() + 11.0), Align2::LEFT_CENTER, super::charts::truncate(&name, 18), semibold(14.0), TEXT);
         p.text(pos2(av.right() + 10.0, av.bottom() - 9.0), Align2::LEFT_CENTER, format!("@{}", super::charts::truncate(&login, 18)), regular(12.0), MUTED);
         if card_resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Open your GitHub profile").clicked() {
-            let _ = open::that_detached(format!("https://github.com/{login}"));
+            open_url(&format!("https://github.com/{login}"));
         }
 
         // Credit line.
@@ -821,7 +832,7 @@ impl App {
             if credit_resp.hovered() { ACCENT_HI } else { FAINT },
         );
         if credit_resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Akulav Tracker on GitHub").clicked() {
-            let _ = open::that_detached(update::REPO_URL);
+            open_url(update::REPO_URL);
         }
     }
 
@@ -970,7 +981,7 @@ impl App {
             };
             ui.label(RichText::new(format!("You have {}. {how}", update::CURRENT_VERSION)).color(MUTED));
             if !info.notes_url.is_empty() && ui.link(RichText::new(format!("{}  What's new", ph::ARROW_SQUARE_OUT)).font(semibold(13.0))).clicked() {
-                let _ = open::that_detached(&info.notes_url);
+                open_url(&info.notes_url);
             }
             ui.add_space(12.0);
             match &state {
@@ -1000,7 +1011,7 @@ impl App {
                             if primary_button(ui, &format!("{}  Restart & update", ph::ARROW_CLOCKWISE), vec2(190.0, 38.0), true).clicked() {
                                 self.save_settings_now();
                                 self.save_cache();
-                                match install::apply_update(&path) {
+                                match install::apply_update(&path, &info.sha256) {
                                     Ok(()) => {
                                         self.skip_save = true;
                                         ctx.send_viewport_cmd(egui::ViewportCommand::Close)
@@ -1327,8 +1338,16 @@ fn nav_item(ui: &mut egui::Ui, icon: &str, label: &str, active: bool, badge: Opt
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Decode an image into a texture. Size limits keep a hostile file (avatars come from the
+/// network) from exhausting memory.
 pub fn load_texture(ctx: &egui::Context, name: &str, bytes: &[u8]) -> Option<TextureHandle> {
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(2048);
+    limits.max_image_height = Some(2048);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let img = reader.decode().ok()?.to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
     Some(ctx.load_texture(name, color, egui::TextureOptions::LINEAR))

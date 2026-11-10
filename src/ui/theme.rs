@@ -22,6 +22,7 @@ pub const GOLD: Color32 = Color32::from_rgb(244, 183, 64);
 pub const RED: Color32 = Color32::from_rgb(248, 113, 113);
 pub const BLUE: Color32 = Color32::from_rgb(96, 165, 250);
 pub const PURPLE: Color32 = Color32::from_rgb(167, 139, 250);
+pub const ORANGE: Color32 = Color32::from_rgb(251, 146, 60);
 
 pub const R_SM: u8 = 6;
 pub const R_MD: u8 = 10;
@@ -32,7 +33,7 @@ pub fn freshness_color(f: Freshness) -> Color32 {
         Freshness::Active => Color32::from_rgb(52, 211, 153),
         Freshness::Recent => Color32::from_rgb(45, 190, 210),
         Freshness::Cooling => Color32::from_rgb(250, 204, 21),
-        Freshness::Stale => Color32::from_rgb(251, 146, 60),
+        Freshness::Stale => ORANGE,
         Freshness::Dormant => Color32::from_rgb(248, 113, 113),
         Freshness::Unknown => FAINT,
     }

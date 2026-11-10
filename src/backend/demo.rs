@@ -3,7 +3,7 @@
 use chrono::{DateTime, Duration, Utc};
 
 use super::cache::Cache;
-use super::github::{Commit, Details, Repo, User, Week};
+use super::github::{Commit, CommitStat, Details, History, Repo, User, Week};
 use super::stats;
 
 pub fn enabled() -> bool {
@@ -143,9 +143,9 @@ pub fn cache(now: DateTime<Utc>) -> Cache {
     c
 }
 
-/// A believable recent history for a demo repository.
-pub fn commits(repo: &Repo) -> Vec<Commit> {
-    let titles = [
+/// A believable complete history for a demo repository, newest first.
+pub fn history(repo: &Repo) -> History {
+    const TITLES: [&str; 12] = [
         "Polish the overview cards",
         "Fix off-by-one in weekly totals",
         "Add keyboard navigation to the list",
@@ -155,18 +155,37 @@ pub fn commits(repo: &Repo) -> Vec<Commit> {
         "Refactor sync into a background job",
         "Tweak colors for the dark theme",
         "Write tests for version ordering",
-        "Initial commit",
+        "Remove the old settings dialog",
+        "Merge pull request from feature branch",
+        "Split the charts module",
     ];
+    let mut rng = Rng(repo.id.wrapping_mul(0x9e37_79b9));
     let last = repo.pushed_at.unwrap_or_else(Utc::now);
-    titles
-        .iter()
-        .enumerate()
-        .map(|(i, t)| Commit {
-            sha: format!("{:07x}{}", 0xa1b2c3u32.wrapping_mul(i as u32 + 3), "0".repeat(33)),
-            title: t.to_string(),
-            author: "akulav".into(),
-            date: Some(last - Duration::hours(i as i64 * 31)),
-            url: String::new(),
+    let n = rng.range(60, 220) as usize;
+    let mut commits: Vec<CommitStat> = (0..n)
+        .map(|i| {
+            let title = TITLES[rng.range(0, TITLES.len() as u64) as usize];
+            let merge = title.starts_with("Merge");
+            // Big early commits, then steady growth with the occasional cleanup.
+            let additions = if i + 3 >= n { rng.range(400, 3000) } else { rng.range(2, 260) };
+            let deletions = if title.starts_with("Remove") || title.starts_with("Split") { additions + rng.range(10, 300) } else { (additions as f64 * rng.f() * 0.6) as u64 };
+            CommitStat {
+                sha: (0..5).map(|_| format!("{:08x}", rng.next() as u32)).collect(),
+                title: title.to_string(),
+                author: "akulav".into(),
+                date: None,
+                additions,
+                deletions,
+                merge,
+                url: String::new(),
+            }
         })
-        .collect()
+        .collect();
+    // Newest first, a few hours to days apart.
+    let mut t = last;
+    for c in &mut commits {
+        c.date = Some(t);
+        t -= Duration::hours(rng.range(4, 70) as i64);
+    }
+    History { commits, complete: true, seen_push: repo.pushed_at }
 }

@@ -117,7 +117,7 @@ impl App {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             if ui.link(RichText::new(format!("{} Create a token", ph::ARROW_SQUARE_OUT)).font(regular(12.5))).on_hover_text("Opens GitHub with the needed scopes (repo, read:user, read:org) preselected").clicked() {
-                                let _ = open::that_detached(NEW_TOKEN_URL);
+                                open_url(NEW_TOKEN_URL);
                             }
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let valid = auth::looks_like_token(&login.pat);
@@ -207,7 +207,7 @@ fn device_panel(ui: &mut egui::Ui, login: &mut super::app::Login, dc: &crate::ba
     let full = vec2(ui.available_width(), 40.0);
     if primary_button(ui, &format!("{}  Copy code & open GitHub", ph::ARROW_SQUARE_OUT), full, true).clicked() {
         *action = Some("copy");
-        let _ = open::that_detached(&dc.verification_uri);
+        open_url(&dc.verification_uri);
     }
     ui.add_space(10.0);
     ui.horizontal(|ui| {

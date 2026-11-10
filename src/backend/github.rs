@@ -10,6 +10,7 @@ use reqwest::header::{HeaderMap, ACCEPT, LINK};
 use serde::{Deserialize, Serialize};
 
 const API: &str = "https://api.github.com";
+const API_PREFIX: &str = "https://api.github.com/";
 
 // ---------------------------------------------------------------------------------------------
 // Models (also what the cache stores)
@@ -64,6 +65,44 @@ pub struct Commit {
     pub date: Option<DateTime<Utc>>,
     pub url: String,
 }
+
+/// A commit with its line changes, from the commit history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CommitStat {
+    pub sha: String,
+    pub title: String,
+    pub author: String,
+    pub date: Option<DateTime<Utc>>,
+    pub additions: u64,
+    pub deletions: u64,
+    /// Merge commits repeat the changes of the branch they merge.
+    pub merge: bool,
+    pub url: String,
+}
+
+impl CommitStat {
+    /// Change in total lines this commit makes (merges count as zero).
+    pub fn net(&self) -> i64 {
+        if self.merge {
+            0
+        } else {
+            self.additions as i64 - self.deletions as i64
+        }
+    }
+}
+
+/// Commit history of the default branch, newest first.
+#[derive(Debug, Clone, Default)]
+pub struct History {
+    pub commits: Vec<CommitStat>,
+    /// Every commit back to the first one is included.
+    pub complete: bool,
+    /// `pushed_at` of the repository when fetched; a change means refetch.
+    pub seen_push: Option<DateTime<Utc>>,
+}
+
+/// Most commits read for the history (10 GraphQL pages).
+pub const HISTORY_MAX: usize = 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Week {
@@ -223,6 +262,110 @@ impl From<WireCommit> for Commit {
     }
 }
 
+// GraphQL commit history.
+
+const HISTORY_QUERY: &str = r#"query($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { target { ... on Commit { history(first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { oid messageHeadline committedDate additions deletions url parents { totalCount } author { name user { login } } }
+    } } } }
+  }
+}"#;
+
+#[derive(Deserialize)]
+struct GqlResponse<T> {
+    data: Option<T>,
+    #[serde(default)]
+    errors: Vec<GqlError>,
+}
+
+#[derive(Deserialize)]
+struct GqlError {
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct HData {
+    repository: Option<HRepo>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HRepo {
+    default_branch_ref: Option<HRef>,
+}
+
+#[derive(Deserialize)]
+struct HRef {
+    target: Option<HTarget>,
+}
+
+#[derive(Deserialize)]
+struct HTarget {
+    /// Absent when the branch points at something other than a commit.
+    history: Option<HHistory>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HHistory {
+    page_info: HPageInfo,
+    nodes: Vec<HNode>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HPageInfo {
+    has_next_page: bool,
+    end_cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HNode {
+    oid: String,
+    #[serde(default)]
+    message_headline: String,
+    committed_date: Option<DateTime<Utc>>,
+    #[serde(default)]
+    additions: u64,
+    #[serde(default)]
+    deletions: u64,
+    #[serde(default)]
+    url: String,
+    parents: Option<HCount>,
+    author: Option<HAuthor>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HCount {
+    total_count: u32,
+}
+
+#[derive(Deserialize)]
+struct HAuthor {
+    name: Option<String>,
+    user: Option<WireLogin>,
+}
+
+impl From<HNode> for CommitStat {
+    fn from(n: HNode) -> Self {
+        let author = n.author.map(|a| a.user.map(|u| u.login).or(a.name).unwrap_or_default()).unwrap_or_default();
+        CommitStat {
+            sha: n.oid,
+            title: n.message_headline.trim().to_string(),
+            author,
+            date: n.committed_date,
+            additions: n.additions,
+            deletions: n.deletions,
+            merge: n.parents.is_some_and(|p| p.total_count > 1),
+            url: n.url,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------------------------
@@ -277,6 +420,10 @@ impl Api {
     }
 
     async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<Fetched<T>> {
+        // URLs also come from `Link` headers; the token must never leave the API host.
+        if !url.starts_with(API_PREFIX) {
+            bail!("refusing to send the token to {url}");
+        }
         let mut attempt = 0;
         let resp = loop {
             let r = self
@@ -350,19 +497,72 @@ impl Api {
         Ok(out)
     }
 
-    pub async fn recent_commits(&self, repo: &Repo, n: usize) -> Result<Vec<Commit>> {
-        let url = format!("{API}/repos/{}/commits?per_page={n}&sha={}", repo.full_name, repo.default_branch);
-        Ok(match self.get::<Vec<WireCommit>>(&url).await? {
-            Fetched::Ok(list, _) => list.into_iter().map(Commit::from).collect(),
-            _ => Vec::new(),
-        })
+    /// One GraphQL request. Returns `Err` with GitHub's messages when the query failed.
+    async fn graphql<T: serde::de::DeserializeOwned>(&self, query: &str, variables: serde_json::Value) -> Result<Option<T>> {
+        let body = serde_json::json!({ "query": query, "variables": variables });
+        let resp = self
+            .http
+            .post(format!("{API}/graphql"))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .context("POST /graphql")?;
+        let status = resp.status().as_u16();
+        if status == 401 {
+            bail!("GitHub rejected the token (401). Sign in again.");
+        }
+        let text = resp.text().await.context("POST /graphql")?;
+        if !(200..300).contains(&status) {
+            bail!("GitHub returned {status} for the commit history");
+        }
+        let r: GqlResponse<T> = serde_json::from_str(&text).context("unexpected answer from /graphql")?;
+        if r.data.is_none() && !r.errors.is_empty() {
+            bail!("{}", r.errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("; "));
+        }
+        Ok(r.data)
+    }
+
+    /// Up to [`HISTORY_MAX`] commits of the default branch with their line changes, newest first.
+    pub async fn history(&self, repo: &Repo) -> Result<History> {
+        let mut out = History { seen_push: repo.pushed_at, ..Default::default() };
+        let mut after: Option<String> = None;
+        // Large diffs can make GitHub time out; ask for fewer commits per page when that happens.
+        let mut first = 100u32;
+        while out.commits.len() < HISTORY_MAX {
+            let vars = serde_json::json!({ "owner": repo.owner, "name": repo.name, "first": first, "after": after });
+            let data = match self.graphql::<HData>(HISTORY_QUERY, vars).await {
+                Ok(d) => d,
+                Err(e) if first > 10 && !format!("{e:#}").contains("401") => {
+                    first /= 2;
+                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            let Some(h) = data.and_then(|d| d.repository).and_then(|r| r.default_branch_ref).and_then(|b| b.target).and_then(|t| t.history) else {
+                // Empty repository: no default branch yet.
+                out.complete = true;
+                break;
+            };
+            out.commits.extend(h.nodes.into_iter().map(CommitStat::from));
+            match h.page_info.end_cursor.filter(|_| h.page_info.has_next_page) {
+                Some(c) => after = Some(c),
+                None => {
+                    out.complete = true;
+                    break;
+                }
+            }
+        }
+        out.commits.truncate(HISTORY_MAX);
+        Ok(out)
     }
 
     /// Commit count, last commit, languages and weekly statistics. `prev` keeps statistics that
     /// GitHub is still computing.
     pub async fn details(&self, repo: &Repo, prev: Option<&Details>) -> Result<Details> {
         let base = format!("{API}/repos/{}", repo.full_name);
-        let commits_url = format!("{base}/commits?per_page=1&sha={}", repo.default_branch);
+        let commits_url = format!("{base}/commits?per_page=1&sha={}", query_escape(&repo.default_branch));
         let (langs_url, activity_url, freq_url) = (format!("{base}/languages"), format!("{base}/stats/commit_activity"), format!("{base}/stats/code_frequency"));
         let (commits, languages, activity, freq) = tokio::join!(
             self.get::<Vec<WireCommit>>(&commits_url),
@@ -411,6 +611,19 @@ impl Api {
     }
 }
 
+/// Percent-encode a query-string value (branch names may hold `&`, `#`, `+` and more).
+pub fn query_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~' | b'/') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 /// URL of `rel` in a `Link` header.
 pub fn link_rel(link: &str, rel: &str) -> Option<String> {
     link.split(',').find_map(|part| {
@@ -457,6 +670,31 @@ mod tests {
         let c = Commit::from(c);
         assert_eq!((c.title.as_str(), c.author.as_str()), ("Fix it", "Ann"));
         assert_eq!(c.date.unwrap().to_rfc3339(), "2026-01-02T00:00:00+00:00");
+    }
+
+    #[test]
+    fn escapes_branch_names() {
+        assert_eq!(query_escape("main"), "main");
+        assert_eq!(query_escape("feature/a&b#c+d e"), "feature/a%26b%23c%2Bd%20e");
+    }
+
+    #[test]
+    fn parses_history_page() {
+        let json = r#"{"data":{"repository":{"defaultBranchRef":{"target":{"history":{
+            "pageInfo":{"hasNextPage":false,"endCursor":"x"},
+            "nodes":[
+              {"oid":"b","messageHeadline":"Merge pull request #1","committedDate":"2026-01-02T00:00:00Z","additions":50,"deletions":5,"url":"u","parents":{"totalCount":2},"author":{"name":"Ann","user":null}},
+              {"oid":"a","messageHeadline":"Add thing","committedDate":"2026-01-01T00:00:00Z","additions":50,"deletions":5,"url":"u","parents":{"totalCount":1},"author":{"name":"Ann","user":{"login":"ann"}}}
+            ]}}}}}}"#;
+        let r: GqlResponse<HData> = serde_json::from_str(json).unwrap();
+        let h = r.data.unwrap().repository.unwrap().default_branch_ref.unwrap().target.unwrap().history.unwrap();
+        let c: Vec<CommitStat> = h.nodes.into_iter().map(CommitStat::from).collect();
+        assert!(c[0].merge && !c[1].merge);
+        assert_eq!((c[0].author.as_str(), c[1].author.as_str()), ("Ann", "ann"));
+        assert_eq!((c[0].net(), c[1].net()), (0, 45));
+        // A branch pointing at a tag or tree has no history field.
+        let t: HTarget = serde_json::from_str("{}").unwrap();
+        assert!(t.history.is_none());
     }
 
     #[test]

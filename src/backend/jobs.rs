@@ -12,7 +12,7 @@ use futures::StreamExt;
 use tokio::runtime::Handle;
 
 use super::auth::{self, DeviceCode};
-use super::github::{Api, Commit, Details, Repo, User};
+use super::github::{Api, Details, History, Repo, User};
 use super::install;
 use super::update::{self, UpdateInfo};
 
@@ -29,7 +29,7 @@ pub enum Event {
     SyncProgress { session: u64, done: usize, total: usize },
     SyncDone { session: u64, errors: Vec<String> },
     SyncFailed { session: u64, error: String },
-    Commits { id: u64, result: Result<Vec<Commit>, String> },
+    History { session: u64, id: u64, result: Result<History, String> },
     Avatar { url: String, bytes: Option<Vec<u8>> },
     // Updates
     UpdateChecked { manual: bool, result: Result<Option<UpdateInfo>, String> },
@@ -177,25 +177,34 @@ pub fn sync(rt: &Handle, bus: Bus, api: Arc<Api>, session: u64, cached: HashMap<
     });
 }
 
-pub fn recent_commits(rt: &Handle, bus: Bus, api: Arc<Api>, repo: Repo) {
+/// Commit history with per-commit line changes.
+pub fn history(rt: &Handle, bus: Bus, api: Arc<Api>, session: u64, repo: Repo) {
     rt.spawn(async move {
-        let result = api.recent_commits(&repo, 30).await.map_err(|e| format!("{e:#}"));
-        bus.send(Event::Commits { id: repo.id, result });
+        let result = api.history(&repo).await.map_err(|e| format!("{e:#}"));
+        bus.send(Event::History { session, id: repo.id, result });
     });
 }
+
+/// Largest avatar accepted (GitHub's 96 px avatars are a few KB).
+const AVATAR_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 /// Avatars are cached in `<data>/avatars` by a hash of their URL.
 pub fn avatar(rt: &Handle, bus: Bus, http: reqwest::Client, url: String, dir: PathBuf) {
     rt.spawn(async move {
         use sha2::Digest;
+        if !url.starts_with("https://") {
+            return bus.send(Event::Avatar { url, bytes: None });
+        }
         let file = dir.join(format!("{}.img", &hex::encode(sha2::Sha256::digest(url.as_bytes()))[..24]));
         if let Ok(b) = tokio::fs::read(&file).await {
-            return bus.send(Event::Avatar { url, bytes: Some(b) });
+            if b.len() <= AVATAR_MAX_BYTES {
+                return bus.send(Event::Avatar { url, bytes: Some(b) });
+            }
         }
         let sized = if url.contains('?') { format!("{url}&s=96") } else { format!("{url}?s=96") };
         let bytes = match http.get(&sized).send().await.and_then(|r| r.error_for_status()) {
-            Ok(r) => r.bytes().await.ok().map(|b| b.to_vec()),
-            Err(_) => None,
+            Ok(r) if r.content_length().is_none_or(|n| n as usize <= AVATAR_MAX_BYTES) => r.bytes().await.ok().map(|b| b.to_vec()).filter(|b| b.len() <= AVATAR_MAX_BYTES),
+            _ => None,
         };
         if let Some(b) = &bytes {
             let _ = tokio::fs::create_dir_all(&dir).await;

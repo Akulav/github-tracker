@@ -96,8 +96,10 @@ fn pick(release: &GhRelease, asset: &str) -> Option<(String, String, String)> {
     if release.draft || release.prerelease {
         return None;
     }
-    let file = release.assets.iter().find(|a| a.name == asset)?;
-    let sums = release.assets.iter().find(|a| a.name == ASSET_SUMS)?;
+    // Only ever download over TLS.
+    let https = |a: &&GhAsset| a.browser_download_url.starts_with("https://");
+    let file = release.assets.iter().filter(https).find(|a| a.name == asset)?;
+    let sums = release.assets.iter().filter(https).find(|a| a.name == ASSET_SUMS)?;
     let version = release.tag_name.trim_start_matches(['v', 'V']).to_string();
     Some((version, file.browser_download_url.clone(), sums.browser_download_url.clone()))
 }
@@ -158,5 +160,7 @@ mod tests {
         assert!(pick(&r, ASSET_LINUX).is_none(), "no file for this OS: no update");
         let pre: GhRelease = serde_json::from_str(&json.replace("\"tag_name\"", "\"prerelease\":true,\"tag_name\"")).unwrap();
         assert!(pick(&pre, ASSET_WINDOWS).is_none());
+        let plain: GhRelease = serde_json::from_str(&json.replace("https://x/setup.exe", "http://x/setup.exe")).unwrap();
+        assert!(pick(&plain, ASSET_WINDOWS).is_none(), "no plain-HTTP downloads");
     }
 }

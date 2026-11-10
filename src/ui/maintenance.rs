@@ -2,7 +2,7 @@
 //! stand out.
 
 use chrono::Utc;
-use egui::{pos2, vec2, Align, Align2, CornerRadius, Layout, Rect, RichText, Sense, Stroke, Ui};
+use egui::{pos2, vec2, Align2, CornerRadius, Rect, RichText, Sense, Stroke, Ui};
 use egui_phosphor::regular as ph;
 
 use super::app::App;
@@ -23,7 +23,7 @@ impl App {
 
         page(ui, "maintenance", |ui| {
             page_header(ui, "Maintenance", "Maintenance radar", Some("Every repository by how long ago it saw a commit. The further right, the more it needs you."));
-            ui.add_space(6.0);
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 toggled |= toggle(ui, &mut self.settings.include_forks).changed();
                 ui.label(RichText::new("Include forks").font(regular(12.5)).color(MUTED));
@@ -31,7 +31,7 @@ impl App {
                 toggled |= toggle(ui, &mut self.settings.include_archived).changed();
                 ui.label(RichText::new("Include archived").font(regular(12.5)).color(MUTED));
             });
-            ui.add_space(12.0);
+            ui.add_space(GAP);
 
             if infos.is_empty() {
                 super::overview::empty_state(ui, self.sync.running);
@@ -44,7 +44,7 @@ impl App {
                 counts[r.fresh.index()] += 1;
             }
             let shown: Vec<Freshness> = Freshness::ALL.into_iter().filter(|f| *f != Freshness::Unknown || counts[f.index()] > 0).collect();
-            columns(ui, shown.len(), 10.0, |ui, i, w| {
+            columns(ui, shown.len(), GAP, |ui, i, w| {
                 let f = shown[i];
                 let (rect, _) = ui.allocate_exact_size(vec2(w, 78.0), Sense::hover());
                 let p = ui.painter();
@@ -60,18 +60,11 @@ impl App {
                     p.text(pos2(rect.left() + 28.0, rect.top() + 36.0), Align2::LEFT_CENTER, f.range(), regular(10.5), FAINT);
                 }
             });
-            ui.add_space(14.0);
+            vgap(ui);
 
             // Timeline.
-            card().show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    section_title(ui, ph::CLOCK_COUNTDOWN, "Time since last commit");
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new("hover a dot for details · click to open").font(regular(12.0)).color(FAINT));
-                    });
-                });
-                ui.add_space(6.0);
+            full_card(ui, |ui| {
+                card_header(ui, ph::CLOCK_COUNTDOWN, "Time since last commit", "log scale, today on the left · hover a dot for details, click to open", |_| {});
                 let items: Vec<TimelineItem> = infos
                     .iter()
                     .filter_map(|r| {
@@ -88,14 +81,11 @@ impl App {
                     open = Some(id);
                 }
             });
-            ui.add_space(14.0);
+            vgap(ui);
 
             // Ranked list.
-            card().show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                section_title(ui, ph::LIST_NUMBERS, "Ranked by need");
-                ui.label(RichText::new("attention score: mostly time since the last commit, plus open issues and pull requests").font(regular(12.0)).color(FAINT));
-                ui.add_space(8.0);
+            full_card(ui, |ui| {
+                card_header(ui, ph::LIST_NUMBERS, "Ranked by need", "attention score: mostly time since the last commit, plus open issues and pull requests", |_| {});
                 for (rank, r) in infos.iter().enumerate() {
                     if attention_row(ui, rank + 1, r, now) {
                         open = Some(r.id);

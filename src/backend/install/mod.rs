@@ -350,7 +350,9 @@ pub async fn download_update(
 
 /// Apply a verified download: Windows runs the setup in update mode (same folder), Linux/macOS
 /// swap the binary in place. Either way the app restarts; the caller must exit right away.
-pub fn apply_update(staged: &Path) -> Result<()> {
+/// The checksum is checked again first, since the file sat on disk since the download.
+pub fn apply_update(staged: &Path, sha256: &str) -> Result<()> {
+    verify_update(staged, sha256)?;
     platform::apply_update(staged)
 }
 
