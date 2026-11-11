@@ -93,7 +93,7 @@ cargo run -- --demo
 `cargo test` runs the unit tests. Build the Windows installer locally with:
 
 ```bash
-iscc /DAppVersion=1.1.0 /DSourceExe=%CD%\target\release\AkulavTracker.exe installer\akulav-tracker.iss
+iscc /DAppVersion=1.1.1 /DSourceExe=%CD%\target\release\AkulavTracker.exe installer\akulav-tracker.iss
 ```
 
 Licensed under the Akulav Source-Available License (see `LICENSE`).
