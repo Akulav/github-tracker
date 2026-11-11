@@ -37,7 +37,9 @@ pub const EXE_NAME: &str = if cfg!(windows) { "AkulavTracker.exe" } else { "Akul
 /// Present in every install folder; holds the installed version.
 pub const MARKER: &str = ".akulav-tracker-install";
 /// Everything the app keeps in its data folder (deleted on uninstall, never anything else).
-pub const DATA_ENTRIES: &[&str] = &["avatars", "cache.json", "token", "settings.json"];
+pub const DATA_ENTRIES: &[&str] = &["avatars", "update", "cache.json", "token", "window.ron", "settings.json"];
+/// Window size and position, kept by the UI toolkit in the data folder (not in the OS's app-data folder).
+pub const WINDOW_STATE_FILE: &str = "window.ron";
 const NEW_SUFFIX: &str = ".new";
 const OLD_SUFFIX: &str = ".old";
 
@@ -108,21 +110,15 @@ pub fn portable() -> bool {
     std::env::var_os("AKULAV_PORTABLE").is_some() || program_root().is_some_and(|r| r.join("portable.txt").exists())
 }
 
-/// The data folder: `AKULAV_DATA_DIR`; portable → next to the program; installed → the install
-/// folder; otherwise (development builds, "just run it") the user's data folder.
+/// The data folder: `AKULAV_DATA_DIR`; otherwise always the folder the app lives in: the install
+/// folder when installed, else next to the program. Nothing is ever kept in `%APPDATA%`,
+/// `~/.local/share` or other system folders.
 pub fn data_root() -> PathBuf {
-    if let Some(d) = std::env::var_os("AKULAV_DATA_DIR") {
+    if let Some(d) = std::env::var_os("AKULAV_DATA_DIR").filter(|d| !d.is_empty()) {
         return PathBuf::from(d);
     }
-    if portable() {
-        if let Some(r) = program_root() {
-            return r;
-        }
-    }
-    if let Some(r) = program_root().filter(|r| is_install_root(r)) {
-        return r;
-    }
-    dirs::data_dir().or_else(dirs::home_dir).unwrap_or_else(std::env::temp_dir).join("AkulavTracker")
+    let root = if portable() { program_root() } else { installed_root().or_else(program_root) };
+    root.unwrap_or_else(|| PathBuf::from("."))
 }
 
 #[cfg_attr(windows, allow(dead_code))]

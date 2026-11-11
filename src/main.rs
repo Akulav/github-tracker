@@ -37,7 +37,9 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_icon(icon);
     }
 
-    let options = eframe::NativeOptions { viewport, centered: true, ..Default::default() };
+    // Window size/position live in the app's own folder, not in %APPDATA% / ~/.local/share.
+    let persistence_path = Some(backend::install::data_root().join(backend::install::WINDOW_STATE_FILE));
+    let options = eframe::NativeOptions { viewport, centered: true, persistence_path, ..Default::default() };
     eframe::run_native(backend::APP_ID, options, Box::new(move |cc| Ok(Box::new(ui::app::App::new(cc, startup)))))
 }
 

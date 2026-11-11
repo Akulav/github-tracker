@@ -84,7 +84,9 @@ Filename: "{app}\{#AppExe}"; Parameters: "--updated-from ""{param:FROM|}"""; Wor
 Type: files; Name: "{app}\{#Marker}"
 Type: files; Name: "{app}\AkulavTracker.old.exe"
 Type: files; Name: "{app}\AkulavTracker.new.exe"
-; Window size and position remembered by the UI toolkit.
+; The downloaded update setup (in-app updates keep it in the app's own folder).
+Type: filesandordirs; Name: "{app}\update"
+; Window size and position remembered by the UI toolkit before 1.1.2 (now window.ron in {app}).
 Type: filesandordirs; Name: "{userappdata}\akulav-tracker"
 
 [Code]
@@ -119,8 +121,10 @@ end;
 procedure DeleteAppData(Dir: String);
 begin
   DelTree(Dir + '\avatars', True, True, True);
+  DelTree(Dir + '\update', True, True, True);
   DeleteFile(Dir + '\cache.json');
   DeleteFile(Dir + '\token');
+  DeleteFile(Dir + '\window.ron');
   DeleteFile(Dir + '\settings.json');
   RemoveDir(Dir);
 end;
