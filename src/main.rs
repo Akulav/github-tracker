@@ -3,6 +3,9 @@
 mod backend;
 mod ui;
 
+/// Smallest window the layout is designed for (points).
+pub const MIN_WINDOW: [f32; 2] = [980.0, 620.0];
+
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version") {
@@ -27,7 +30,7 @@ fn main() -> eframe::Result<()> {
         .with_title(backend::APP_NAME)
         .with_app_id(backend::APP_ID)
         .with_inner_size([1280.0, 800.0])
-        .with_min_inner_size([980.0, 620.0])
+        .with_min_inner_size(MIN_WINDOW)
         .with_decorations(false)
         .with_resizable(true);
     if let Some(icon) = icon {

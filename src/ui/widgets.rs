@@ -29,7 +29,7 @@ pub fn open_url(url: &str) {
 /// Width of a cell spanning `span` of `cols` equal columns in `total` width.
 pub fn span_width(total: f32, cols: usize, span: usize) -> f32 {
     let unit = (total - GAP * (cols as f32 - 1.0)) / cols as f32;
-    unit * span as f32 + GAP * (span as f32 - 1.0)
+    (unit * span as f32 + GAP * (span as f32 - 1.0)).max(0.0)
 }
 
 /// A row of cards on a `cols`-column grid; card `i` spans `spans[i]` columns. All cards in the
@@ -50,8 +50,15 @@ pub fn card_row(ui: &mut Ui, id: &str, cols: usize, spans: &[usize], mut add: im
                     // The cursor then still tells where the content really ends.
                     let top = ui.cursor().top();
                     ui.set_min_height(target);
+                    ui.data_mut(|d| {
+                        d.insert_temp(card_bottom_id(), Some(top + target));
+                        d.insert_temp(card_spacer_id(), 0.0f32);
+                    });
                     add(ui, i);
-                    let natural = ui.cursor().top() - ui.spacing().item_spacing.y - top;
+                    // Space added by `bottom_spacer` isn't content; leave it out so rows can shrink.
+                    let spacer: f32 = ui.data(|d| d.get_temp(card_spacer_id())).unwrap_or(0.0);
+                    ui.data_mut(|d| d.insert_temp(card_bottom_id(), None::<f32>));
+                    let natural = ui.cursor().top() - ui.spacing().item_spacing.y - top - spacer;
                     tallest = tallest.max(natural);
                 });
             });
@@ -60,6 +67,24 @@ pub fn card_row(ui: &mut Ui, id: &str, cols: usize, spans: &[usize], mut add: im
     if (tallest - target).abs() > 0.5 {
         ui.data_mut(|d| d.insert_temp(id, tallest));
         ui.ctx().request_repaint();
+    }
+}
+
+fn card_bottom_id() -> egui::Id {
+    egui::Id::new("card_row_bottom")
+}
+fn card_spacer_id() -> egui::Id {
+    egui::Id::new("card_row_spacer")
+}
+
+/// Inside a [`card_row`] card: push what follows down so a block `reserve` tall ends at the
+/// card's bottom, lining up action bars across the row. Does nothing elsewhere.
+pub fn bottom_spacer(ui: &mut Ui, reserve: f32) {
+    let Some(bottom) = ui.data(|d| d.get_temp::<Option<f32>>(card_bottom_id())).flatten() else { return };
+    let space = bottom - reserve - ui.cursor().top();
+    if space > 0.5 {
+        ui.add_space(space);
+        ui.data_mut(|d| *d.get_temp_mut_or(card_spacer_id(), 0.0f32) += space);
     }
 }
 

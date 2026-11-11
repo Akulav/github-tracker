@@ -1150,6 +1150,12 @@ impl App {
     /// Development aid: with `AKULAV_SHOT_DIR` set, visit every page, save a PNG of each, then quit.
     fn shot_tour(&mut self, ctx: &egui::Context) {
         let Some(dir) = std::env::var_os("AKULAV_SHOT_DIR").map(PathBuf::from) else { return };
+        // AKULAV_SHOT_SIZE=1600x1000 shoots at that window size (points).
+        if ctx.input(|i| i.time) < 0.5 {
+            if let Some((w, h)) = std::env::var("AKULAV_SHOT_SIZE").ok().and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)))) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(w, h)));
+            }
+        }
         let first_repo = self.repos.first().map(|r| r.id);
         let pages: Vec<(&str, Option<Page>)> = vec![
             ("overview", Some(Page::Overview)),
@@ -1195,6 +1201,17 @@ impl App {
         ctx.request_repaint();
     }
 
+    /// A window closed while minimized is saved at its minimized size (about 160×60) and comes
+    /// back that small; the restored size skips the minimum, so grow it back.
+    fn keep_min_size(&self, ctx: &egui::Context) {
+        let (rect, minimized) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().minimized.unwrap_or(false)));
+        let Some(rect) = rect else { return };
+        let min = vec2(crate::MIN_WINDOW[0], crate::MIN_WINDOW[1]);
+        if !minimized && (rect.width() < min.x - 1.0 || rect.height() < min.y - 1.0) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(rect.size().max(min)));
+        }
+    }
+
     fn resize_handles(&self, ctx: &egui::Context) {
         use egui::viewport::ResizeDirection as D;
         if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
@@ -1232,6 +1249,7 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.keep_min_size(ctx);
         self.handle_events(ctx);
         egui::TopBottomPanel::top("title_bar").exact_height(42.0).frame(Frame::new().fill(SURFACE)).show(ctx, |ui| self.title_bar(ui));
 

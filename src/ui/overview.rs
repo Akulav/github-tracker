@@ -24,7 +24,8 @@ pub fn page(ui: &mut Ui, id: &str, add: impl FnOnce(&mut Ui)) {
 
 /// Lay out `n` equal columns with `gap` between them.
 pub fn columns(ui: &mut Ui, n: usize, gap: f32, mut add: impl FnMut(&mut Ui, usize, f32)) {
-    let w = (ui.available_width() - gap * (n as f32 - 1.0)) / n as f32;
+    // The first frame can be narrower than the gaps; never ask for a negative size.
+    let w = ((ui.available_width() - gap * (n as f32 - 1.0)) / n as f32).max(0.0);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         for i in 0..n {
