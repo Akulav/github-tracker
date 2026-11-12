@@ -31,7 +31,7 @@ fn main() -> eframe::Result<()> {
         .with_app_id(backend::APP_ID)
         .with_inner_size([1280.0, 800.0])
         .with_min_inner_size(MIN_WINDOW)
-        .with_decorations(false)
+        .with_decorations(true)
         .with_resizable(true);
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);

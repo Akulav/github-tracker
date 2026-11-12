@@ -9,7 +9,7 @@ pub const GAP: f32 = 12.0;
 const CARD_PAD: i8 = 18;
 
 pub fn card() -> Frame {
-    Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(CARD_PAD))
+    glass_frame().inner_margin(Margin::same(CARD_PAD))
 }
 
 /// Vertical space so consecutive blocks sit exactly [`GAP`] apart.
@@ -80,7 +80,9 @@ fn card_spacer_id() -> egui::Id {
 /// Inside a [`card_row`] card: push what follows down so a block `reserve` tall ends at the
 /// card's bottom, lining up action bars across the row. Does nothing elsewhere.
 pub fn bottom_spacer(ui: &mut Ui, reserve: f32) {
-    let Some(bottom) = ui.data(|d| d.get_temp::<Option<f32>>(card_bottom_id())).flatten() else { return };
+    let Some(bottom) = ui.data(|d| d.get_temp::<Option<f32>>(card_bottom_id())).flatten() else {
+        return;
+    };
     let space = bottom - reserve - ui.cursor().top();
     if space > 0.5 {
         ui.add_space(space);
@@ -151,7 +153,8 @@ pub fn primary_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) 
 }
 
 pub fn secondary_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
-    button_base(ui, text, size, enabled, SURFACE_2, SURFACE_3, TEXT, Some(BORDER))
+    // Hyve's .btn: translucent white, a bit brighter on hover.
+    button_base(ui, text, size, enabled, with_alpha(Color32::WHITE, 15), with_alpha(Color32::WHITE, 29), TEXT, Some(with_alpha(Color32::WHITE, 40)))
 }
 
 pub fn danger_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
@@ -183,8 +186,8 @@ pub fn ghost_button(ui: &mut Ui, text: &str) -> Response {
 pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
-    ui.painter().rect_filled(rect, CornerRadius::same(R_MD), lerp_color(SURFACE_2, SURFACE_3, hover));
-    ui.painter().rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
+    ui.painter().rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (15.0 + 14.0 * hover) as u8));
+    ui.painter().rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, (38.0 + 22.0 * hover) as u8)), StrokeKind::Inside);
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, regular(16.0), lerp_color(MUTED, TEXT, hover));
     resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -215,7 +218,7 @@ pub fn filter_pill(ui: &mut Ui, text: &str, count: Option<usize>, active: bool) 
     let (bg, stroke, fg) = if active {
         (with_alpha(ACCENT, 40), with_alpha(ACCENT, 140), ACCENT_HI)
     } else {
-        (lerp_color(SURFACE_2, SURFACE_3, hover), BORDER, lerp_color(MUTED, TEXT, hover))
+        (with_alpha(Color32::WHITE, (12.0 + 12.0 * hover) as u8), with_alpha(Color32::WHITE, 36), lerp_color(MUTED, TEXT, hover))
     };
     ui.painter().rect_filled(rect, CornerRadius::same(255), bg);
     ui.painter().rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, stroke), StrokeKind::Inside);
@@ -229,8 +232,8 @@ pub fn stat_tile(ui: &mut Ui, width: f32, icon: &str, color: Color32, value: &st
     let h = 104.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(width, h), Sense::hover());
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(R_LG), SURFACE);
-    p.rect_stroke(rect, CornerRadius::same(R_LG), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
+    p.rect_filled(rect, CornerRadius::same(R_LG), GLASS);
+    p.rect_stroke(rect, CornerRadius::same(R_LG), Stroke::new(1.0_f32, GLASS_BORDER), StrokeKind::Inside);
     // Soft glow in the corner.
     let glow = Rect::from_min_size(rect.right_top() + vec2(-70.0, 0.0), vec2(70.0, 70.0));
     p.with_clip_rect(rect.shrink(1.0)).circle_filled(glow.center() + vec2(20.0, -20.0), 46.0, with_alpha(color, 14));
@@ -254,7 +257,8 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
     let t = ui.ctx().animate_bool_with_time(resp.id, *on, 0.15);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(255), lerp_color(SURFACE_3, ACCENT, t));
+    p.rect_filled(rect, CornerRadius::same(255), lerp_color(with_alpha(Color32::WHITE, 34), ACCENT, t));
+    p.rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, (46.0 * (1.0 - t)) as u8)), StrokeKind::Inside);
     let x = egui::lerp(rect.left() + 11.0..=rect.right() - 11.0, t);
     p.circle_filled(pos2(x, rect.center().y), 8.0, Color32::WHITE);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -309,10 +313,12 @@ pub fn spinner(ui: &mut Ui, size: f32, color: Color32) {
     let c = rect.center();
     let r = size * 0.4;
     let start = t * 5.0;
-    let pts: Vec<egui::Pos2> = (0..=24).map(|i| {
-        let a = start + i as f32 / 24.0 * 4.4;
-        c + vec2(a.cos(), a.sin()) * r
-    }).collect();
+    let pts: Vec<egui::Pos2> = (0..=24)
+        .map(|i| {
+            let a = start + i as f32 / 24.0 * 4.4;
+            c + vec2(a.cos(), a.sin()) * r
+        })
+        .collect();
     ui.painter().add(egui::Shape::line(pts, Stroke::new(2.2_f32, color)));
     ui.ctx().request_repaint();
 }
@@ -360,4 +366,39 @@ pub fn paint_avatar(p: &egui::Painter, rect: Rect, tex: Option<&egui::TextureHan
         }
     }
     p.circle_stroke(rect.center(), rect.width() / 2.0, Stroke::new(1.0_f32, with_alpha(Color32::WHITE, 18)));
+}
+
+/// Horizontal gradient fill.
+pub fn hgradient(painter: &egui::Painter, rect: Rect, left: Color32, right: Color32) {
+    use egui::epaint::{Mesh, Vertex, WHITE_UV};
+    let mut mesh = Mesh::default();
+    for (pos, c) in [(rect.left_top(), left), (rect.right_top(), right), (rect.right_bottom(), right), (rect.left_bottom(), left)] {
+        mesh.vertices.push(Vertex { pos, uv: WHITE_UV, color: c });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(mesh);
+}
+
+/// Rounded rect with a horizontal gradient. Each cap is clipped to its own strip so translucent colors don't
+/// overlap (no visible bands).
+pub fn hgradient_rounded(p: &egui::Painter, rect: Rect, left: Color32, right: Color32, radius: u8) {
+    let r = radius as f32;
+    if rect.width() <= 2.0 * r {
+        p.rect_filled(rect, CornerRadius::same(radius), lerp_color(left, right, 0.5));
+        return;
+    }
+    let left_strip = Rect::from_min_max(rect.min, pos2(rect.min.x + r, rect.max.y));
+    let right_strip = Rect::from_min_max(pos2(rect.max.x - r, rect.min.y), rect.max);
+    p.with_clip_rect(left_strip.intersect(p.clip_rect())).rect_filled(
+        Rect::from_min_max(rect.min, pos2(rect.min.x + 2.0 * r, rect.max.y)),
+        CornerRadius { nw: radius, sw: radius, ne: 0, se: 0 },
+        left,
+    );
+    p.with_clip_rect(right_strip.intersect(p.clip_rect())).rect_filled(
+        Rect::from_min_max(pos2(rect.max.x - 2.0 * r, rect.min.y), rect.max),
+        CornerRadius { nw: 0, sw: 0, ne: radius, se: radius },
+        right,
+    );
+    hgradient(p, Rect::from_min_max(pos2(rect.min.x + r, rect.min.y), pos2(rect.max.x - r, rect.max.y)), left, right);
 }

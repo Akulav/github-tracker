@@ -46,7 +46,16 @@ pub struct Login {
 
 impl Default for Login {
     fn default() -> Self {
-        Self { pat: String::new(), error: None, busy: false, device: None, device_started: None, cancel: Arc::new(AtomicBool::new(false)), gh_token: None, copied: None }
+        Self {
+            pat: String::new(),
+            error: None,
+            busy: false,
+            device: None,
+            device_started: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+            gh_token: None,
+            copied: None,
+        }
     }
 }
 
@@ -200,7 +209,7 @@ pub struct App {
     shot_taken: Option<usize>,
 }
 
-pub const SIDEBAR_W: f32 = 224.0;
+pub const SIDEBAR_W: f32 = 254.0;
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, startup: StartupInfo) -> Self {
@@ -463,7 +472,9 @@ impl App {
     }
 
     pub fn load_history(&mut self, id: u64) {
-        let (Some(s), Some(r)) = (self.session(), self.repo(id)) else { return };
+        let (Some(s), Some(r)) = (self.session(), self.repo(id)) else {
+            return;
+        };
         let (api, session, r) = (s.api.clone(), s.id, r.clone());
         if demo::enabled() {
             self.commit_history.insert(id, Loadable::Ready(demo::history(&r)));
@@ -643,7 +654,10 @@ impl App {
         let typing = ctx.wants_keyboard_input();
         let (cmd, alt, back_mouse) = ctx.input(|i| (i.modifiers.command, i.modifiers.alt, i.pointer.button_pressed(egui::PointerButton::Extra1)));
         let pressed = |k: Key| ctx.input(|i| i.key_pressed(k));
-        if back_mouse || (alt && pressed(Key::ArrowLeft)) || (!typing && (pressed(Key::Backspace) || (pressed(Key::Escape) && matches!(self.page, Page::Repo(_))))) {
+        if back_mouse
+            || (alt && pressed(Key::ArrowLeft))
+            || (!typing && (pressed(Key::Backspace) || (pressed(Key::Escape) && matches!(self.page, Page::Repo(_)))))
+        {
             self.back();
         }
         if cmd {
@@ -669,60 +683,28 @@ impl App {
     // Chrome
     // -----------------------------------------------------------------------------------------
 
-    fn title_bar(&mut self, ui: &mut egui::Ui) {
-        let rect = ui.max_rect();
-        let drag = ui.interact(rect, Id::new("title_drag"), Sense::click_and_drag());
-        if drag.drag_started_by(egui::PointerButton::Primary) {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-        }
-        if drag.double_clicked() {
-            let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-        }
-
-        ui.horizontal_centered(|ui| {
-            ui.add_space(14.0);
-            if let Some(icon) = &self.icon {
-                ui.add(egui::Image::new(icon).fit_to_exact_size(vec2(20.0, 20.0)));
+    /// Update status, under the navigation (the system draws the title bar now).
+    fn update_chip(&mut self, ui: &mut egui::Ui) {
+        let label = match &self.update {
+            UpdateState::Available(i) => Some((format!("Update {} available", i.version), GOLD)),
+            UpdateState::Downloading { done, total, .. } => {
+                Some((if *total > 0 { format!("Downloading {:.0}%", *done as f32 * 100.0 / *total as f32) } else { "Downloading update…".into() }, BLUE))
             }
-            ui.add_space(4.0);
-            ui.label(RichText::new("AKULAV").font(black(13.5)).color(TEXT).extra_letter_spacing(1.5));
-            ui.label(RichText::new("TRACKER").font(semibold(13.0)).color(MUTED).extra_letter_spacing(1.5));
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                if window_button(ui, ph::X, true).clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-                if window_button(ui, if max { ph::CORNERS_IN } else { ph::CORNERS_OUT }, false).clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-                }
-                if window_button(ui, ph::MINUS, false).clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                }
-                ui.add_space(10.0);
-                let label = match &self.update {
-                    UpdateState::Available(i) => Some((format!("Update {} available", i.version), GOLD)),
-                    UpdateState::Downloading { done, total, .. } => Some((
-                        if *total > 0 { format!("Downloading update {:.0}%", *done as f32 * 100.0 / *total as f32) } else { "Downloading update…".into() },
-                        BLUE,
-                    )),
-                    UpdateState::Ready { .. } => Some(("Restart to update".into(), ACCENT_HI)),
-                    UpdateState::Failed { info: Some(_), .. } => Some(("Update failed".into(), RED)),
-                    _ => None,
-                };
-                if let Some((text, color)) = label {
-                    let r = chip(ui, ph::ARROW_CIRCLE_UP, &text, color).interact(Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-                    if r.clicked() {
-                        self.show_update_dialog = true;
-                    }
+            UpdateState::Ready { .. } => Some(("Restart to update".into(), ACCENT_HI)),
+            UpdateState::Failed { info: Some(_), .. } => Some(("Update failed".into(), RED)),
+            _ => None,
+        };
+        if let Some((text, color)) = label {
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                let r = chip(ui, ph::ARROW_CIRCLE_UP, &text, color).interact(Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+                if r.clicked() {
+                    self.show_update_dialog = true;
                 }
             });
-        });
-        ui.painter().hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0_f32, BORDER));
+        }
     }
-
     fn attention_count(&self) -> usize {
         let now = Utc::now();
         self.counted()
@@ -732,7 +714,23 @@ impl App {
     }
 
     fn sidebar(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(16.0);
+        // Brand, like Hyve's sidebar header.
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            if let Some(icon) = &self.icon {
+                ui.add(egui::Image::new(icon).fit_to_exact_size(vec2(34.0, 34.0)));
+            }
+            ui.add_space(2.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(RichText::new("Akulav Tracker").font(bold(15.5)).color(ACCENT_HI));
+                ui.label(RichText::new("GitHub at a glance").font(regular(11.5)).color(MUTED));
+            });
+        });
+        ui.add_space(12.0);
+        let y = ui.cursor().top();
+        ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0_f32, GLASS_BORDER));
+        ui.add_space(12.0);
         let attention = self.attention_count();
         let current = match self.page {
             Page::Repo(_) => Page::Repos,
@@ -740,8 +738,13 @@ impl App {
         };
         for (page, icon, label, badge) in [
             (Page::Overview, ph::SQUARES_FOUR, "Overview", None),
-            (Page::Repos, ph::GIT_BRANCH, "Repositories", Some((self.repos.len().to_string(), SURFACE_3))),
-            (Page::Maintenance, ph::HEARTBEAT, "Maintenance", (attention > 0).then(|| (attention.min(999).to_string(), with_alpha(freshness_color(Freshness::Stale), 200)))),
+            (Page::Repos, ph::GIT_BRANCH, "Repositories", Some((self.repos.len().to_string(), with_alpha(Color32::WHITE, 26)))),
+            (
+                Page::Maintenance,
+                ph::HEARTBEAT,
+                "Maintenance",
+                (attention > 0).then(|| (attention.min(999).to_string(), with_alpha(freshness_color(Freshness::Stale), 200))),
+            ),
             (Page::Settings, ph::GEAR_SIX, "Settings", None),
         ] {
             if nav_item(ui, icon, label, current == page, badge).clicked() {
@@ -752,20 +755,22 @@ impl App {
             }
             ui.add_space(2.0);
         }
+        self.update_chip(ui);
 
         // Sync status.
         ui.add_space(14.0);
         let r = ui.max_rect();
-        ui.painter().hline(r.left() + 6.0..=r.right() - 6.0, ui.cursor().top(), Stroke::new(1.0_f32, BORDER));
+        ui.painter().hline(r.x_range(), ui.cursor().top(), Stroke::new(1.0_f32, GLASS_BORDER));
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             ui.vertical(|ui| {
-                ui.set_width(SIDEBAR_W - 80.0);
+                ui.set_width(ui.available_width() - 44.0);
                 if self.sync.running {
                     ui.label(RichText::new("Syncing…").font(semibold(13.0)).color(TEXT));
                     ui.add_space(-6.0);
-                    let sub = if self.sync.total > 0 { format!("{} of {} repositories", self.sync.done, self.sync.total) } else { "Listing repositories".into() };
+                    let sub =
+                        if self.sync.total > 0 { format!("{} of {} repositories", self.sync.done, self.sync.total) } else { "Listing repositories".into() };
                     ui.label(RichText::new(sub).font(regular(11.5)).color(MUTED));
                 } else {
                     let (t, c) = match (&self.sync.error, self.synced_at) {
@@ -793,7 +798,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.add_space(6.0);
                 ui.vertical(|ui| {
-                    ui.set_width(SIDEBAR_W - 36.0);
+                    ui.set_width(ui.available_width() - 6.0);
                     let frac = (self.sync.total > 0).then(|| self.sync.done as f32 / self.sync.total as f32);
                     progress_bar(ui, frac, 4.0);
                 });
@@ -802,11 +807,11 @@ impl App {
 
         // Profile card pinned to the bottom.
         let bottom = ui.max_rect().bottom();
-        let card = Rect::from_min_max(pos2(ui.max_rect().left() + 2.0, bottom - 64.0 - 36.0), pos2(ui.max_rect().right() - 2.0, bottom - 36.0));
+        let card = Rect::from_min_max(pos2(ui.max_rect().left(), bottom - 64.0 - 30.0), pos2(ui.max_rect().right(), bottom - 30.0));
         let card_resp = ui.interact(card, Id::new("profile_card"), Sense::click());
         let hover = ui.ctx().animate_bool_with_time(card_resp.id, card_resp.hovered(), 0.1);
-        ui.painter().rect_filled(card, CornerRadius::same(R_MD), lerp_color(SURFACE_2, SURFACE_3, hover));
-        ui.painter().rect_stroke(card, CornerRadius::same(R_MD), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
+        ui.painter().rect_filled(card, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (10.0 + 10.0 * hover) as u8));
+        ui.painter().rect_stroke(card, CornerRadius::same(R_MD), Stroke::new(1.0_f32, GLASS_BORDER), StrokeKind::Inside);
         let (login, name, avatar_url) = match self.session() {
             Some(s) => (s.user.login.clone(), s.user.name.clone().unwrap_or_else(|| s.user.login.clone()), s.user.avatar_url.clone()),
             None => (String::new(), String::new(), String::new()),
@@ -906,7 +911,8 @@ impl App {
         };
         let mut close = false;
         let mut go = false;
-        let modal = egui::Modal::new(Id::new("confirm")).frame(Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(24)));
+        let modal = egui::Modal::new(Id::new("confirm"))
+            .frame(Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(24)));
         let resp = modal.show(ctx, |ui| {
             ui.set_width(400.0);
             ui.label(RichText::new(title).font(bold(19.0)));
@@ -961,7 +967,8 @@ impl App {
             return;
         };
         let mut close = false;
-        let modal = egui::Modal::new(Id::new("update_dialog")).frame(Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(26)));
+        let modal = egui::Modal::new(Id::new("update_dialog"))
+            .frame(Frame::new().fill(SURFACE).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(R_LG)).inner_margin(Margin::same(26)));
         let resp = modal.show(ctx, |ui| {
             ui.set_width(440.0);
             ui.horizontal(|ui| {
@@ -1081,21 +1088,34 @@ impl App {
                     ui.add_space(10.0);
                     match &offer {
                         Offer::Install { .. } => {
-                            ui.label(RichText::new("Choose a folder. The app and its data (cache, settings) go there, and updates keep using it.").color(MUTED));
+                            ui.label(
+                                RichText::new("Choose a folder. The app and its data (cache, settings) go there, and updates keep using it.").color(MUTED),
+                            );
                             ui.add_space(14.0);
                             ui.label(RichText::new("Install folder").font(semibold(13.0)));
-                            let edit = egui::TextEdit::singleline(&mut self.install_dir_edit).desired_width(f32::INFINITY).font(regular(13.5)).margin(Margin::symmetric(10, 8));
+                            let edit = egui::TextEdit::singleline(&mut self.install_dir_edit)
+                                .desired_width(f32::INFINITY)
+                                .font(regular(13.5))
+                                .margin(Margin::symmetric(10, 8));
                             if ui.add(edit).changed() {
                                 self.install_error = None;
                             }
-                            let extras = if cfg!(target_os = "macos") { "Creates Akulav Tracker.app in this folder." } else { "Also adds an app-menu entry, a Desktop shortcut and the akulav-tracker command." };
+                            let extras = if cfg!(target_os = "macos") {
+                                "Creates Akulav Tracker.app in this folder."
+                            } else {
+                                "Also adds an app-menu entry, a Desktop shortcut and the akulav-tracker command."
+                            };
                             ui.label(RichText::new(extras).font(regular(12.0)).color(FAINT));
                         }
                         Offer::Update { root, installed } => {
                             let from = installed.as_deref().map(|v| format!("version {v}")).unwrap_or_else(|| "an older version".into());
                             ui.label(
-                                RichText::new(format!("Akulav Tracker {from} is installed in {}. Update it to {}? Your settings and cache stay where they are.", root.display(), update::CURRENT_VERSION))
-                                    .color(MUTED),
+                                RichText::new(format!(
+                                    "Akulav Tracker {from} is installed in {}. Update it to {}? Your settings and cache stay where they are.",
+                                    root.display(),
+                                    update::CURRENT_VERSION
+                                ))
+                                .color(MUTED),
                             );
                         }
                         Offer::None => {}
@@ -1149,10 +1169,14 @@ impl App {
 
     /// Development aid: with `AKULAV_SHOT_DIR` set, visit every page, save a PNG of each, then quit.
     fn shot_tour(&mut self, ctx: &egui::Context) {
-        let Some(dir) = std::env::var_os("AKULAV_SHOT_DIR").map(PathBuf::from) else { return };
+        let Some(dir) = std::env::var_os("AKULAV_SHOT_DIR").map(PathBuf::from) else {
+            return;
+        };
         // AKULAV_SHOT_SIZE=1600x1000 shoots at that window size (points).
         if ctx.input(|i| i.time) < 0.5 {
-            if let Some((w, h)) = std::env::var("AKULAV_SHOT_SIZE").ok().and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?)))) {
+            if let Some((w, h)) =
+                std::env::var("AKULAV_SHOT_SIZE").ok().and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))))
+            {
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(w, h)));
             }
         }
@@ -1211,36 +1235,6 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(rect.size().max(min)));
         }
     }
-
-    fn resize_handles(&self, ctx: &egui::Context) {
-        use egui::viewport::ResizeDirection as D;
-        if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
-            return;
-        }
-        let r = ctx.screen_rect();
-        let t = 5.0;
-        let zones = [
-            (Rect::from_min_max(r.left_top(), pos2(r.right(), r.top() + t)), D::North, egui::CursorIcon::ResizeVertical),
-            (Rect::from_min_max(pos2(r.left(), r.bottom() - t), r.right_bottom()), D::South, egui::CursorIcon::ResizeVertical),
-            (Rect::from_min_max(r.left_top(), pos2(r.left() + t, r.bottom())), D::West, egui::CursorIcon::ResizeHorizontal),
-            (Rect::from_min_max(pos2(r.right() - t, r.top()), r.right_bottom()), D::East, egui::CursorIcon::ResizeHorizontal),
-            (Rect::from_min_size(r.left_top(), vec2(t * 2.0, t * 2.0)), D::NorthWest, egui::CursorIcon::ResizeNwSe),
-            (Rect::from_min_size(pos2(r.right() - t * 2.0, r.top()), vec2(t * 2.0, t * 2.0)), D::NorthEast, egui::CursorIcon::ResizeNeSw),
-            (Rect::from_min_size(pos2(r.left(), r.bottom() - t * 2.0), vec2(t * 2.0, t * 2.0)), D::SouthWest, egui::CursorIcon::ResizeNeSw),
-            (Rect::from_min_size(r.right_bottom() - vec2(t * 3.0, t * 3.0), vec2(t * 3.0, t * 3.0)), D::SouthEast, egui::CursorIcon::ResizeNwSe),
-        ];
-        egui::Area::new(Id::new("resize_handles")).order(egui::Order::Debug).fixed_pos(r.min).interactable(true).show(ctx, |ui| {
-            for (i, (rect, dir, cursor)) in zones.into_iter().enumerate().rev() {
-                let resp = ui.interact(rect, Id::new(("resize", i)), Sense::drag());
-                if resp.hovered() || resp.dragged() {
-                    ctx.set_cursor_icon(cursor);
-                }
-                if resp.drag_started() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
-                }
-            }
-        });
-    }
 }
 
 impl eframe::App for App {
@@ -1251,26 +1245,23 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.keep_min_size(ctx);
         self.handle_events(ctx);
-        egui::TopBottomPanel::top("title_bar").exact_height(42.0).frame(Frame::new().fill(SURFACE)).show(ctx, |ui| self.title_bar(ui));
+        paint_backdrop(ctx);
 
         if self.install_offer != Offer::None {
-            egui::CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| self.install_screen(ui));
+            egui::CentralPanel::default().frame(Frame::new()).show(ctx, |ui| self.install_screen(ui));
         } else if self.session().is_none() {
-            egui::CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| self.login_page(ui));
+            egui::CentralPanel::default().frame(Frame::new()).show(ctx, |ui| self.login_page(ui));
         } else {
             self.shortcuts(ctx);
             if self.settings.auto_check_updates && self.last_update_check.elapsed() > Duration::from_secs(3 * 3600) {
                 self.check_updates(false);
             }
-            egui::SidePanel::left("sidebar")
-                .exact_width(SIDEBAR_W)
-                .resizable(false)
-                .frame(Frame::new().fill(SURFACE).inner_margin(Margin { left: 12, right: 12, top: 0, bottom: 0 }))
-                .show(ctx, |ui| {
-                    let r = ui.max_rect();
-                    ui.painter().vline(r.right() + 11.5, r.y_range(), Stroke::new(1.0_f32, BORDER));
-                    self.sidebar(ui)
-                });
+            // A floating glass sidebar, like Hyve's.
+            egui::SidePanel::left("sidebar").exact_width(SIDEBAR_W).resizable(false).show_separator_line(false).frame(Frame::new()).show(ctx, |ui| {
+                let panel = Rect::from_min_max(ui.max_rect().min + vec2(WINDOW_GAP, WINDOW_GAP), ui.max_rect().max - vec2(0.0, WINDOW_GAP));
+                ui.painter().rect(panel, CornerRadius::same(R_LG), GLASS, Stroke::new(1.0_f32, GLASS_BORDER), StrokeKind::Inside);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(panel.shrink(12.0)), |ui| self.sidebar(ui));
+            });
 
             // Pages fade in when switched.
             let fade = (self.page_since.elapsed().as_secs_f32() / 0.2).min(1.0);
@@ -1278,7 +1269,7 @@ impl eframe::App for App {
             if fade < 1.0 {
                 ctx.request_repaint();
             }
-            egui::CentralPanel::default().frame(Frame::new().fill(BG)).show(ctx, |ui| {
+            egui::CentralPanel::default().frame(Frame::new()).show(ctx, |ui| {
                 ui.set_opacity(fade);
                 match self.page {
                     Page::Overview => self.overview_page(ui),
@@ -1295,7 +1286,6 @@ impl eframe::App for App {
         self.update_dialog(ctx);
         self.confirm_ui(ctx);
         self.toasts_ui(ctx);
-        self.resize_handles(ctx);
         self.shot_tour(ctx);
 
         if let Some(t) = self.settings_dirty.filter(|_| !self.skip_save) {
@@ -1321,29 +1311,18 @@ impl eframe::App for App {
     }
 }
 
-pub fn window_button(ui: &mut egui::Ui, icon: &str, is_close: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(46.0, 42.0), Sense::click());
-    let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.08);
-    let bg = if is_close { Color32::from_rgb(196, 43, 28) } else { Color32::from_white_alpha(14) };
-    if hover > 0.0 {
-        ui.painter().rect_filled(rect, 0.0, with_alpha(bg, (bg.a() as f32 * hover) as u8));
-    }
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, regular(15.0), lerp_color(MUTED, TEXT, hover));
-    resp
-}
-
 fn nav_item(ui: &mut egui::Ui, icon: &str, label: &str, active: bool, badge: Option<(String, Color32)>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
     let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
     let act = ui.ctx().animate_bool_with_time(resp.id.with("a"), active, 0.15);
     let p = ui.painter();
-    let bg = lerp_color(with_alpha(Color32::WHITE, (hover * 8.0) as u8), with_alpha(ACCENT, 30), act);
-    p.rect_filled(rect, CornerRadius::same(R_MD), bg);
+    // Hyve's nav item: a faint hover, and for the current page an accent gradient with an accent border.
+    p.rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (hover * (1.0 - act) * 13.0) as u8));
     if act > 0.0 {
-        let bar = Rect::from_min_size(pos2(rect.left(), rect.center().y - 10.0 * act), vec2(3.0, 20.0 * act));
-        p.rect_filled(bar, CornerRadius::same(2), ACCENT_HI);
+        hgradient_rounded(p, rect, with_alpha(ACCENT, (72.0 * act) as u8), with_alpha(ACCENT, (20.0 * act) as u8), R_MD);
+        p.rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, with_alpha(ACCENT, (90.0 * act) as u8)), StrokeKind::Inside);
     }
-    let fg = lerp_color(lerp_color(MUTED, TEXT, hover), TEXT, act);
+    let fg = lerp_color(lerp_color(lerp_color(MUTED, TEXT, 0.55), TEXT, hover), TEXT, act);
     p.text(rect.left_center() + vec2(16.0, 0.0), Align2::LEFT_CENTER, icon, regular(18.0), if active { ACCENT_HI } else { fg });
     p.text(rect.left_center() + vec2(44.0, 0.0), Align2::LEFT_CENTER, label, semibold(14.0), fg);
     if let Some((text, color)) = badge {
