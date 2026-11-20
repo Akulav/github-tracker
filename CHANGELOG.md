@@ -4,6 +4,12 @@ All notable changes to Akulav Tracker are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Older versions are described on the
 [releases page](https://github.com/Akulav/github-tracker/releases).
 
+## [1.2.1] - 2026-11-20
+
+### Changed
+- Docs: a new `docs/ARCHITECTURE.md`, linked from the README.
+- Code clean-ups so the build passes the newest Rust lints (no change in behaviour).
+
 ## [1.2.0] - 2026-11-12
 
 ### Changed

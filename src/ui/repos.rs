@@ -16,6 +16,9 @@ use crate::backend::stats::{self, Freshness};
 /// Row height without item spacing.
 const ROW_H: f32 = 62.0;
 
+/// Draws one column of a repository row into its cell.
+type CellPainter<'a> = Box<dyn Fn(&egui::Painter, Rect) + 'a>;
+
 fn matches_filter(r: &RepoInfo, f: Filter) -> bool {
     match f {
         Filter::All => true,
@@ -306,7 +309,7 @@ fn repo_row(ui: &mut Ui, r: &RepoInfo, selected: bool, now: chrono::DateTime<Utc
     // Right-hand columns.
     let mut right = rect.right() - 12.0;
     let cy = rect.center().y;
-    let cols: Vec<Box<dyn Fn(&egui::Painter, Rect)>> = vec![
+    let cols: Vec<CellPainter> = vec![
         Box::new(|_p, _c| {}), // sparkline drawn separately (needs Ui)
         Box::new(|p, c| {
             let t = r.commits.map(stats::grouped).unwrap_or_else(|| "—".into());

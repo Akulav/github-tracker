@@ -148,7 +148,7 @@ impl Details {
             return Some((n, true));
         }
         let bytes: u64 = self.languages.iter().map(|(_, b)| b).sum();
-        (bytes > 0).then(|| (bytes / BYTES_PER_LINE, false))
+        (bytes > 0).then_some((bytes / BYTES_PER_LINE, false))
     }
 }
 
@@ -586,7 +586,7 @@ impl Api {
         }
         if let Fetched::Ok(map, _) = languages? {
             let mut v: Vec<(String, u64)> = map.into_iter().collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
+            v.sort_by_key(|e| std::cmp::Reverse(e.1));
             d.languages = v;
         }
         match activity? {

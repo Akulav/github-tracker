@@ -126,6 +126,7 @@ pub fn page_header(ui: &mut Ui, kick: &str, title: &str, sub: Option<&str>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // one private helper behind the public button styles
 fn button_base(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool, fill: Color32, hover_fill: Color32, fg: Color32, stroke: Option<Color32>) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     let hover = ui.ctx().animate_bool_with_time(resp.id, enabled && resp.hovered(), 0.12);

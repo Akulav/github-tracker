@@ -138,9 +138,9 @@ impl App {
 
             // Freshness, most active and needs attention.
             let mut active: Vec<&RepoInfo> = infos.iter().filter(|r| r.commits_4w > 0).collect();
-            active.sort_by(|a, b| b.commits_4w.cmp(&a.commits_4w));
+            active.sort_by_key(|r| std::cmp::Reverse(r.commits_4w));
             let mut needs: Vec<&RepoInfo> = infos.iter().filter(|r| !r.archived && r.days.is_some()).collect();
-            needs.sort_by(|a, b| b.attention.cmp(&a.attention));
+            needs.sort_by_key(|r| std::cmp::Reverse(r.attention));
             let mut block = |ui: &mut Ui, i: usize| match i {
                 0 => {
                     card_header(ui, ph::CLOCK_COUNTDOWN, "Freshness", "time since each repository's last commit", |_| {});

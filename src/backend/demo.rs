@@ -77,7 +77,7 @@ fn weeks_for(rng: &mut Rng, last: DateTime<Utc>, now: DateTime<Utc>, intensity: 
 }
 
 pub fn cache(now: DateTime<Utc>) -> Cache {
-    let mut rng = Rng(0x5eed_a1u64);
+    let mut rng = Rng(0x005e_eda1_u64);
     let user = User { login: "akulav".into(), name: Some("Akulav".into()), avatar_url: String::new(), html_url: "https://github.com/Akulav".into(), public_repos: 16, followers: 42 };
     let mut c = Cache { user, synced_at: Some(now - Duration::minutes(3)), ..Default::default() };
     for (i, (name, lang, desc, days, private, fork, archived)) in REPOS.iter().enumerate() {
