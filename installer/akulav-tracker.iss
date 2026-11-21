@@ -86,8 +86,6 @@ Type: files; Name: "{app}\AkulavTracker.old.exe"
 Type: files; Name: "{app}\AkulavTracker.new.exe"
 ; The downloaded update setup (in-app updates keep it in the app's own folder).
 Type: filesandordirs; Name: "{app}\update"
-; Window size and position remembered by the UI toolkit before 1.1.2 (now window.ron in {app}).
-Type: filesandordirs; Name: "{userappdata}\akulav-tracker"
 
 [Code]
 function IsUpdate(): Boolean;

@@ -295,9 +295,7 @@ impl App {
                     self.enter_session(token, user, self.settings.sync_on_start);
                 }
                 None => {
-                    let mut login = Login { busy: true, ..Default::default() };
-                    login.error = None;
-                    self.auth = Auth::SignedOut(login);
+                    self.auth = Auth::SignedOut(Login { busy: true, ..Default::default() });
                     jobs::sign_in_with_token(self.rt.handle(), self.bus.clone(), self.http.clone(), token);
                 }
             },

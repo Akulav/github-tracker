@@ -277,19 +277,6 @@ mod linux {
         for p in [icon_path(), desktop_shortcut(), bin_link()].into_iter().flatten() {
             let _ = std::fs::remove_file(p);
         }
-        // Window size/position remembered by the UI toolkit. It is written again when the window
-        // closes, so delete it once more a moment after we've exited.
-        if let Some(d) = dirs::data_local_dir() {
-            let dir = d.join(APP_ID);
-            let _ = std::fs::remove_dir_all(&dir);
-            let _ = std::process::Command::new("sh")
-                .args(["-c", "sleep 2; rm -rf -- \"$1\"", "sh"])
-                .arg(&dir)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-        }
     }
 
     #[cfg(test)]
