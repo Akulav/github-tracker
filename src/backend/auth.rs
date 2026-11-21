@@ -7,8 +7,8 @@
 //! * **GitHub CLI** — reuse the token `gh auth token` prints, when `gh` is installed and signed in.
 //! * **Personal access token** — pasted by the user.
 //!
-//! The token is kept in the OS credential store (Windows Credential Manager, macOS Keychain). On
-//! Linux, and if the store is unavailable, it goes into `<data folder>/token` (mode 0600).
+//! The token is kept only in the OS credential store (see [`store`]). It is never logged and never
+//! written to settings, the cache or error messages.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -126,56 +126,38 @@ pub fn looks_like_token(t: &str) -> bool {
     t.len() >= 20 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// The token lives only in the OS credential store: Windows Credential Manager, the macOS
+/// Keychain, or the Secret Service (GNOME Keyring, KWallet) on Linux. When no store is available
+/// the sign-in lasts for this session only; it is never written to a file.
 pub mod store {
     use super::*;
 
-    #[cfg(any(windows, target_os = "macos"))]
-    fn entry() -> Option<keyring::Entry> {
-        keyring::Entry::new(crate::backend::APP_ID, "github-token").ok()
+    fn entry() -> Result<keyring::Entry> {
+        keyring::Entry::new(crate::backend::APP_ID, "github-token").context("the system keychain is not available")
     }
 
-    fn file(root: &Path) -> std::path::PathBuf {
-        root.join("token")
+    /// Versions up to 1.2.1 could keep the token in a plain `token` file in the data folder (always
+    /// on Linux). It is deleted, not read: such a sign-in has to be made again.
+    fn remove_plain_file(root: &Path) {
+        let _ = std::fs::remove_file(root.join("token"));
     }
 
     pub fn load(root: &Path) -> Option<String> {
-        #[cfg(any(windows, target_os = "macos"))]
-        if let Some(t) = entry().and_then(|e| e.get_password().ok()).filter(|t| !t.is_empty()) {
-            return Some(t);
-        }
-        std::fs::read_to_string(file(root)).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+        remove_plain_file(root);
+        entry().ok()?.get_password().ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
     }
 
     pub fn save(root: &Path, token: &str) -> Result<()> {
-        #[cfg(any(windows, target_os = "macos"))]
-        if entry().is_some_and(|e| e.set_password(token).is_ok()) {
-            let _ = std::fs::remove_file(file(root));
-            return Ok(());
-        }
-        use std::io::Write;
-        std::fs::create_dir_all(root)?;
-        let path = file(root);
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            // Private from the moment it exists, not only after a chmod.
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            opts.mode(0o600);
-            if path.exists() {
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            }
-        }
-        opts.open(&path)?.write_all(token.as_bytes())?;
-        Ok(())
+        remove_plain_file(root);
+        // The keyring error text never holds the secret itself.
+        entry()?.set_password(token).map_err(|e| anyhow::anyhow!("the system keychain refused it: {e}"))
     }
 
     pub fn clear(root: &Path) {
-        #[cfg(any(windows, target_os = "macos"))]
-        if let Some(e) = entry() {
+        remove_plain_file(root);
+        if let Ok(e) = entry() {
             let _ = e.delete_credential();
         }
-        let _ = std::fs::remove_file(file(root));
     }
 }
 

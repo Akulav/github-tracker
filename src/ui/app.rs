@@ -721,7 +721,7 @@ impl App {
             ui.add_space(2.0);
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.label(RichText::new("Akulav Tracker").font(bold(15.5)).color(ACCENT_HI));
+                ui.label(RichText::new("Akulav Tracker").font(semibold(15.5)).color(TEXT));
                 ui.label(RichText::new("GitHub at a glance").font(regular(11.5)).color(MUTED));
             });
         });
@@ -853,7 +853,7 @@ impl App {
             let alpha = ((LIFETIME - age) / 0.4).clamp(0.0, 1.0) * (age / 0.15).clamp(0.0, 1.0);
             let (color, icon) = match t.kind {
                 ToastKind::Info => (BLUE, ph::INFO),
-                ToastKind::Success => (ACCENT_HI, ph::CHECK_CIRCLE),
+                ToastKind::Success => (GREEN, ph::CHECK_CIRCLE),
                 ToastKind::Warning => (GOLD, ph::WARNING),
                 ToastKind::Error => (RED, ph::WARNING_OCTAGON),
             };
@@ -972,7 +972,7 @@ impl App {
             ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(46.0, 46.0), Sense::hover());
                 ui.painter().rect_filled(r, CornerRadius::same(R_MD), with_alpha(ACCENT, 40));
-                ui.painter().text(r.center(), Align2::CENTER_CENTER, ph::ROCKET_LAUNCH, regular(24.0), ACCENT_HI);
+                ui.painter().text(r.center(), Align2::CENTER_CENTER, ph::ROCKET_LAUNCH, regular(24.0), ACCENT);
                 ui.vertical(|ui| {
                     kicker(ui, "Akulav Tracker update");
                     ui.label(RichText::new(format!("Version {}", info.version)).font(bold(20.0)));
@@ -1008,7 +1008,7 @@ impl App {
                     });
                 }
                 UpdateState::Ready { path, .. } => {
-                    ui.label(RichText::new(format!("{}  Downloaded and verified (SHA-256)", ph::CHECK_CIRCLE)).font(semibold(14.0)).color(ACCENT_HI));
+                    ui.label(RichText::new(format!("{}  Downloaded and verified (SHA-256)", ph::CHECK_CIRCLE)).font(semibold(14.0)).color(GREEN));
                     ui.add_space(8.0);
                     let path = path.clone();
                     ui.horizontal(|ui| {
@@ -1257,7 +1257,6 @@ impl eframe::App for App {
             // A floating glass sidebar, like Hyve's.
             egui::SidePanel::left("sidebar").exact_width(SIDEBAR_W).resizable(false).show_separator_line(false).frame(Frame::new()).show(ctx, |ui| {
                 let panel = Rect::from_min_max(ui.max_rect().min + vec2(WINDOW_GAP, WINDOW_GAP), ui.max_rect().max - vec2(0.0, WINDOW_GAP));
-                ui.painter().rect(panel, CornerRadius::same(R_LG), GLASS, Stroke::new(1.0_f32, GLASS_BORDER), StrokeKind::Inside);
                 ui.scope_builder(egui::UiBuilder::new().max_rect(panel.shrink(12.0)), |ui| self.sidebar(ui));
             });
 
@@ -1314,14 +1313,14 @@ fn nav_item(ui: &mut egui::Ui, icon: &str, label: &str, active: bool, badge: Opt
     let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
     let act = ui.ctx().animate_bool_with_time(resp.id.with("a"), active, 0.15);
     let p = ui.painter();
-    // Hyve's nav item: a faint hover, and for the current page an accent gradient with an accent border.
-    p.rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (hover * (1.0 - act) * 13.0) as u8));
+    // Windows 11's nav item: a faint layer on hover and on the current page, which also gets the accent pill.
+    p.rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (hover.max(act) * 11.0) as u8));
     if act > 0.0 {
-        hgradient_rounded(p, rect, with_alpha(ACCENT, (72.0 * act) as u8), with_alpha(ACCENT, (20.0 * act) as u8), R_MD);
-        p.rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, with_alpha(ACCENT, (90.0 * act) as u8)), StrokeKind::Inside);
+        let pill = Rect::from_center_size(pos2(rect.left() + 1.5, rect.center().y), vec2(3.0, 16.0 * act));
+        p.rect_filled(pill, CornerRadius::same(2), ACCENT);
     }
     let fg = lerp_color(lerp_color(lerp_color(MUTED, TEXT, 0.55), TEXT, hover), TEXT, act);
-    p.text(rect.left_center() + vec2(16.0, 0.0), Align2::LEFT_CENTER, icon, regular(18.0), if active { ACCENT_HI } else { fg });
+    p.text(rect.left_center() + vec2(16.0, 0.0), Align2::LEFT_CENTER, icon, regular(18.0), if active { ACCENT } else { fg });
     p.text(rect.left_center() + vec2(44.0, 0.0), Align2::LEFT_CENTER, label, semibold(14.0), fg);
     if let Some((text, color)) = badge {
         let g = p.layout_no_wrap(text, bold(11.0), TEXT);

@@ -125,7 +125,7 @@ impl App {
                 let added: i64 = details.code_frequency.iter().map(|w| w.1).sum();
                 let removed: i64 = details.code_frequency.iter().map(|w| -w.2).sum();
                 ui.horizontal(|ui| {
-                    dot_label(ui, ACCENT, &format!("+{} added", stats::grouped(added.max(0) as u64)), MUTED);
+                    dot_label(ui, GREEN, &format!("+{} added", stats::grouped(added.max(0) as u64)), MUTED);
                     dot_label(ui, RED, &format!("−{} removed", stats::grouped(removed.max(0) as u64)), MUTED);
                 });
             };
@@ -257,8 +257,8 @@ fn evolution_card(ui: &mut Ui, history: Option<&Loadable<History>>, details: &De
     let growth = now_total - first_total;
     let facts: [(Color32, String, String); 4] = [
         (PURPLE, signed(now_total), if absolute { "lines now".into() } else { "lines (relative to the oldest commit read)".into() }),
-        (if growth >= 0 { ACCENT_HI } else { RED }, format!("{}{}", if growth >= 0 { "+" } else { "" }, signed(growth)), if h.complete { "since the first commit".into() } else { "over these commits".into() }),
-        (ACCENT_HI, format!("+{}  −{}", stats::compact(added), stats::compact(removed)), "added and removed".into()),
+        (if growth >= 0 { GREEN } else { RED }, format!("{}{}", if growth >= 0 { "+" } else { "" }, signed(growth)), if h.complete { "since the first commit".into() } else { "over these commits".into() }),
+        (GREEN, format!("+{}  −{}", stats::compact(added), stats::compact(removed)), "added and removed".into()),
         (
             GOLD,
             biggest.map(|c| stats::compact(c.additions + c.deletions)).unwrap_or_else(|| "—".into()),
@@ -353,7 +353,7 @@ fn commit_row(ui: &mut Ui, c: &CommitStat, total: i64, now: DateTime<Utc>) {
         p.text(pos2(right, cy), Align2::RIGHT_CENTER, "merge", semibold(12.0), FAINT);
     } else {
         p.text(pos2(right, cy), Align2::RIGHT_CENTER, format!("−{}", stats::compact(c.deletions)), semibold(12.5), if c.deletions > 0 { RED } else { FAINT });
-        p.text(pos2(right - 58.0, cy), Align2::RIGHT_CENTER, format!("+{}", stats::compact(c.additions)), semibold(12.5), if c.additions > 0 { ACCENT_HI } else { FAINT });
+        p.text(pos2(right - 58.0, cy), Align2::RIGHT_CENTER, format!("+{}", stats::compact(c.additions)), semibold(12.5), if c.additions > 0 { GREEN } else { FAINT });
     }
     let text_right = right - 120.0;
 

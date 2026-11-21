@@ -4,6 +4,19 @@ All notable changes to Akulav Tracker are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Older versions are described on the
 [releases page](https://github.com/Akulav/github-tracker/releases).
 
+## [1.3.0] - 2026-11-21
+
+### Changed
+- **New look:** Windows 11's dark style, like Akulav's other apps: a flat #202020 window, #2b2b2b cards with hairline
+  borders, the Windows accent blue for the interface (commits and added lines stay green, as on GitHub), 4 px
+  controls and 8 px cards, Windows-style switches and navigation, and Segoe UI on Windows (Inter elsewhere). No
+  more glows or gradients.
+
+### Security
+- The GitHub token is kept only in the system keychain, on Linux too (Secret Service: GNOME Keyring, KWallet).
+  It is never written to a file any more; a plain `token` file left by an older version is deleted, so on Linux
+  you sign in once more. Without a keychain the sign-in lasts for the session.
+
 ## [1.2.1] - 2026-11-20
 
 ### Changed

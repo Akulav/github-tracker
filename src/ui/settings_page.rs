@@ -98,7 +98,7 @@ impl App {
                             let (text, color) = match &self.update {
                                 UpdateState::None => (format!("You have version {}", update::CURRENT_VERSION), MUTED),
                                 UpdateState::Checking => ("Checking for updates…".into(), MUTED),
-                                UpdateState::UpToDate => (format!("{}  Version {} is the latest", ph::CHECK_CIRCLE, update::CURRENT_VERSION), ACCENT_HI),
+                                UpdateState::UpToDate => (format!("{}  Version {} is the latest", ph::CHECK_CIRCLE, update::CURRENT_VERSION), GREEN),
                                 UpdateState::Available(i) => (format!("Version {} is available", i.version), GOLD),
                                 UpdateState::Downloading { done, total, .. } => (format!("Downloading… {}", if *total > 0 { format!("{:.0}%", *done as f32 * 100.0 / *total as f32) } else { stats::bytes(*done) }), BLUE),
                                 UpdateState::Ready { info, .. } => (format!("Version {} is ready to install", info.version), ACCENT_HI),

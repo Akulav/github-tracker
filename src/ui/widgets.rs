@@ -150,12 +150,12 @@ fn button_base(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool, fill: C
 }
 
 pub fn primary_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
-    button_base(ui, text, size, enabled, ACCENT, ACCENT_HI, Color32::from_rgb(4, 30, 22), None)
+    button_base(ui, text, size, enabled, ACCENT, Color32::from_rgb(90, 188, 233), ON_ACCENT, None)
 }
 
 pub fn secondary_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
-    // Hyve's .btn: translucent white, a bit brighter on hover.
-    button_base(ui, text, size, enabled, with_alpha(Color32::WHITE, 15), with_alpha(Color32::WHITE, 29), TEXT, Some(with_alpha(Color32::WHITE, 40)))
+    // Windows 11's standard button: a light layer with a hairline border, a step lighter on hover.
+    button_base(ui, text, size, enabled, with_alpha(Color32::WHITE, 15), with_alpha(Color32::WHITE, 21), TEXT, Some(with_alpha(Color32::WHITE, 24)))
 }
 
 pub fn danger_button(ui: &mut Ui, text: &str, size: egui::Vec2, enabled: bool) -> Response {
@@ -187,8 +187,8 @@ pub fn ghost_button(ui: &mut Ui, text: &str) -> Response {
 pub fn icon_button(ui: &mut Ui, icon: &str, tip: &str) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
-    ui.painter().rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (15.0 + 14.0 * hover) as u8));
-    ui.painter().rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, (38.0 + 22.0 * hover) as u8)), StrokeKind::Inside);
+    ui.painter().rect_filled(rect, CornerRadius::same(R_MD), with_alpha(Color32::WHITE, (15.0 + 6.0 * hover) as u8));
+    ui.painter().rect_stroke(rect, CornerRadius::same(R_MD), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, 24)), StrokeKind::Inside);
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, regular(16.0), lerp_color(MUTED, TEXT, hover));
     resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -217,7 +217,7 @@ pub fn filter_pill(ui: &mut Ui, text: &str, count: Option<usize>, active: bool) 
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let hover = ui.ctx().animate_bool_with_time(resp.id, resp.hovered(), 0.1);
     let (bg, stroke, fg) = if active {
-        (with_alpha(ACCENT, 40), with_alpha(ACCENT, 140), ACCENT_HI)
+        (ACCENT, ACCENT, ON_ACCENT)
     } else {
         (with_alpha(Color32::WHITE, (12.0 + 12.0 * hover) as u8), with_alpha(Color32::WHITE, 36), lerp_color(MUTED, TEXT, hover))
     };
@@ -249,7 +249,7 @@ pub fn stat_tile(ui: &mut Ui, width: f32, icon: &str, color: Color32, value: &st
     resp
 }
 
-/// iOS-style switch.
+/// Windows 11 toggle switch: an outlined track when off, the accent with a black knob when on.
 pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(vec2(40.0, 22.0), Sense::click());
     if resp.clicked() {
@@ -258,10 +258,11 @@ pub fn toggle(ui: &mut Ui, on: &mut bool) -> Response {
     }
     let t = ui.ctx().animate_bool_with_time(resp.id, *on, 0.15);
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(255), lerp_color(with_alpha(Color32::WHITE, 34), ACCENT, t));
-    p.rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, (46.0 * (1.0 - t)) as u8)), StrokeKind::Inside);
-    let x = egui::lerp(rect.left() + 11.0..=rect.right() - 11.0, t);
-    p.circle_filled(pos2(x, rect.center().y), 8.0, Color32::WHITE);
+    let rect = Rect::from_center_size(rect.center(), vec2(40.0, 20.0));
+    p.rect_filled(rect, CornerRadius::same(255), lerp_color(with_alpha(Color32::BLACK, 40), ACCENT, t));
+    p.rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, with_alpha(Color32::WHITE, (160.0 * (1.0 - t)) as u8)), StrokeKind::Inside);
+    let x = egui::lerp(rect.left() + 10.0..=rect.right() - 10.0, t);
+    p.circle_filled(pos2(x, rect.center().y), 6.0, lerp_color(MUTED, ON_ACCENT, t));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -369,37 +370,3 @@ pub fn paint_avatar(p: &egui::Painter, rect: Rect, tex: Option<&egui::TextureHan
     p.circle_stroke(rect.center(), rect.width() / 2.0, Stroke::new(1.0_f32, with_alpha(Color32::WHITE, 18)));
 }
 
-/// Horizontal gradient fill.
-pub fn hgradient(painter: &egui::Painter, rect: Rect, left: Color32, right: Color32) {
-    use egui::epaint::{Mesh, Vertex, WHITE_UV};
-    let mut mesh = Mesh::default();
-    for (pos, c) in [(rect.left_top(), left), (rect.right_top(), right), (rect.right_bottom(), right), (rect.left_bottom(), left)] {
-        mesh.vertices.push(Vertex { pos, uv: WHITE_UV, color: c });
-    }
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    painter.add(mesh);
-}
-
-/// Rounded rect with a horizontal gradient. Each cap is clipped to its own strip so translucent colors don't
-/// overlap (no visible bands).
-pub fn hgradient_rounded(p: &egui::Painter, rect: Rect, left: Color32, right: Color32, radius: u8) {
-    let r = radius as f32;
-    if rect.width() <= 2.0 * r {
-        p.rect_filled(rect, CornerRadius::same(radius), lerp_color(left, right, 0.5));
-        return;
-    }
-    let left_strip = Rect::from_min_max(rect.min, pos2(rect.min.x + r, rect.max.y));
-    let right_strip = Rect::from_min_max(pos2(rect.max.x - r, rect.min.y), rect.max);
-    p.with_clip_rect(left_strip.intersect(p.clip_rect())).rect_filled(
-        Rect::from_min_max(rect.min, pos2(rect.min.x + 2.0 * r, rect.max.y)),
-        CornerRadius { nw: radius, sw: radius, ne: 0, se: 0 },
-        left,
-    );
-    p.with_clip_rect(right_strip.intersect(p.clip_rect())).rect_filled(
-        Rect::from_min_max(pos2(rect.max.x - 2.0 * r, rect.min.y), rect.max),
-        CornerRadius { nw: 0, sw: 0, ne: radius, se: radius },
-        right,
-    );
-    hgradient(p, Rect::from_min_max(pos2(rect.min.x + r, rect.min.y), pos2(rect.max.x - r, rect.max.y)), left, right);
-}

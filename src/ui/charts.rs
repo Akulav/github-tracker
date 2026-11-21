@@ -406,7 +406,7 @@ pub fn code_frequency(ui: &mut Ui, weeks: &[(i64, i64, i64)], height: f32) -> Re
         let x = plot.left() + slot * i as f32 + (slot - bw) / 2.0;
         let hl = hover_i == Some(i);
         if *a > 0 {
-            let c = if hl { Color32::from_rgb(120, 240, 190) } else { ACCENT };
+            let c = if hl { Color32::from_rgb(150, 225, 140) } else { GREEN };
             p.rect_filled(Rect::from_min_max(pos2(x, mid - scale(*a).max(1.5)), pos2(x + bw, mid - 0.5)), CornerRadius::same(1), c);
         }
         if *d < 0 {
@@ -425,7 +425,7 @@ pub fn code_frequency(ui: &mut Ui, weeks: &[(i64, i64, i64)], height: f32) -> Re
             resp.hover_pos().unwrap(),
             &[
                 (week_label(w), MUTED, false),
-                (format!("+{} lines", stats::grouped(a.max(0) as u64)), ACCENT_HI, true),
+                (format!("+{} lines", stats::grouped(a.max(0) as u64)), GREEN, true),
                 (format!("−{} lines", stats::grouped((-d).max(0) as u64)), RED, true),
             ],
         );
@@ -495,7 +495,7 @@ pub fn code_evolution(ui: &mut Ui, commits: &[CommitStat], totals: &[i64], heigh
         let c = commit(i);
         let x = x_at(i) - bw / 2.0;
         let hl = hover_i == Some(i);
-        let (up, down) = if c.merge { (with_alpha(FAINT, 120), with_alpha(FAINT, 120)) } else if hl { (Color32::from_rgb(120, 240, 190), Color32::from_rgb(255, 160, 160)) } else { (ACCENT, RED) };
+        let (up, down) = if c.merge { (with_alpha(FAINT, 120), with_alpha(FAINT, 120)) } else if hl { (Color32::from_rgb(150, 225, 140), Color32::from_rgb(255, 185, 192)) } else { (GREEN, RED) };
         if c.additions > 0 {
             p.rect_filled(Rect::from_min_max(pos2(x, mid - scale(c.additions).max(1.5)), pos2(x + bw, mid - 0.5)), CornerRadius::same(1), up);
         }
@@ -532,7 +532,7 @@ pub fn code_evolution(ui: &mut Ui, commits: &[CommitStat], totals: &[i64], heigh
     if c.merge {
         lines.push(("Merge commit: its changes count on the merged branch".into(), FAINT, false));
     } else {
-        lines.push((format!("+{} added   −{} removed", stats::grouped(c.additions), stats::grouped(c.deletions)), ACCENT_HI, false));
+        lines.push((format!("+{} added   −{} removed", stats::grouped(c.additions), stats::grouped(c.deletions)), GREEN, false));
     }
     lines.push((format!("{} lines after this commit", if total(i) < 0 { compact_signed(total(i)) } else { stats::grouped(total(i) as u64) }), PURPLE, true));
     if !c.url.is_empty() {
